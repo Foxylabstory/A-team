@@ -1,0 +1,7 @@
+{
+  "name": "antipov-instagram-loader",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.13.0" },
+  "scripts": { "start": "node --env-file-if-exists=.env server.js" }
+}

@@ -1,2 +1,9 @@
-.env.example
 .env
+node_modules/
+A-Team/server/data/
+A-Team/server/backups/
+A-Team/server/screenshots/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+/tmp/

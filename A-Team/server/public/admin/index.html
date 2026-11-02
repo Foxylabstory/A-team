@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Заявки — ANTIPOV TEAM</title>
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script src="/admin/admin.js" defer></script>
+</head>
+<body>
+  <header class="header"><a class="brand" href="/" aria-label="ANTIPOV team — на сайт"><img data-antipov-logo="admin" src="/assets/antipov-team-logo-v2.svg" alt="ANTIPOV team" width="218" height="72"></a><span class="label">Кабинет администратора</span></header>
+  <main>
+    <section id="login-view" class="login card">
+      <span class="eyebrow">Доступ для клуба</span>
+      <h1>Вход администратора</h1>
+      <p class="muted">Заявки и контакты доступны после входа.</p>
+      <form id="login-form">
+        <label for="login-password">Пароль</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus>
+        <button type="submit" class="primary">Войти</button>
+      </form>
+      <p class="muted small">Забыли пароль или подозреваете утечку? Восстановите доступ через владельца сервера. Публичной формы сброса пароля нет.</p>
+      <a href="/">Вернуться на сайт ↗</a>
+    </section>
+    <div id="dashboard" hidden>
+      <div class="heading"><div><span class="eyebrow">ANTIPOV TEAM</span><h1 id="dashboard-title">Заявки на тренировку</h1><p class="muted" id="dashboard-description">Контакты остаются в закрытом кабинете клуба.</p></div><button id="logout" type="button">Выйти</button></div>
+      <nav class="tabs" aria-label="Разделы кабинета">
+        <button type="button" data-tab="leads" aria-pressed="true">Заявки</button>
+        <button type="button" data-tab="news" aria-pressed="false">Новости</button>
+        <button type="button" data-tab="password" aria-pressed="false">Сменить пароль</button>
+        <button type="button" data-tab="audit" aria-pressed="false">История действий</button>
+      </nav>
+      <section id="leads-panel">
+        <p id="notification-hint" class="notice" hidden></p>
+        <div class="toolbar"><div><label for="status-filter">Статус заявки</label><select id="status-filter"><option value="all">Все заявки</option><option value="new">Новые</option><option value="contacted">Связались</option><option value="booked">Записаны</option><option value="closed">Закрыты</option></select></div><button type="button" id="refresh">Обновить</button><span id="summary" class="muted" aria-live="polite"></span></div>
+        <div id="leads" class="leads" aria-live="polite"></div>
+        <div class="pagination"><button type="button" id="previous">← Назад</button><span id="page-label"></span><button type="button" id="next">Далее →</button></div>
+        <p class="muted small" id="retention-hint"></p>
+      </section>
+      <section id="news-panel" hidden>
+        <div class="news-intro"><p class="muted">Создавайте новости клуба или загружайте публикации из Instagram. На сайте показываются шесть последних опубликованных новостей.</p><div class="actions"><button id="add-news" type="button" class="primary">Добавить новость</button><button id="import-news" type="button" disabled>Загрузить из Instagram</button></div></div>
+        <p id="news-import-hint" class="notice"></p>
+        <section id="news-editor" class="card" hidden>
+          <h2 id="news-editor-title">Новая публикация</h2>
+          <form id="news-form">
+            <div class="news-fields"><div><label for="news-title">Заголовок новости</label><input id="news-title" name="title" required maxlength="120"></div><div><label for="news-date">Дата публикации</label><input id="news-date" name="date" type="date" required></div></div>
+            <label for="news-text">Текст новости</label><textarea id="news-text" name="text" rows="5" maxlength="2000"></textarea>
+            <label for="news-image">Фото с компьютера</label><input id="news-image" name="imageFile" type="file" accept="image/jpeg,image/png,image/webp">
+            <p class="muted small">JPEG, PNG или WebP, до 2 МБ. Фотография сохраняется на сервере клуба.</p>
+            <img id="news-image-preview" class="news-preview" alt="Предпросмотр фотографии" hidden>
+            <label class="checkbox"><input id="news-no-image" name="noImage" type="checkbox"> Убрать изображение</label>
+            <div class="actions"><button id="save-news" type="submit" class="primary">Опубликовать новость</button><button id="cancel-news" type="button">Отмена</button></div>
+          </form>
+        </section>
+        <div class="toolbar"><div><label for="news-filter">Показать новости</label><select id="news-filter"><option value="all">Все опубликованные</option><option value="manual">Ручные</option><option value="instagram">Из Instagram</option><option value="hidden">Скрытые</option></select></div><button id="refresh-news" type="button">Обновить список</button><span id="news-summary" class="muted" aria-live="polite"></span></div>
+        <div id="news-list" class="news-list" aria-live="polite"></div>
+        <div class="pagination"><button id="news-previous" type="button">← Назад</button><span id="news-page-label"></span><button id="news-next" type="button">Далее →</button></div>
+      </section>
+      <section id="password-panel" class="card narrow" hidden>
+        <h2>Смена пароля</h2>
+        <p class="muted">После смены пароля все устройства выйдут из кабинета. Повторный вход потребуется и на этом устройстве.</p>
+        <form id="password-form">
+          <label for="current-password">Текущий пароль</label><input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required maxlength="256">
+          <label for="new-password">Новый пароль</label><input id="new-password" name="newPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
+          <label for="repeat-password">Повторите новый пароль</label><input id="repeat-password" name="repeatPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
+          <p class="muted small">Минимум 14 символов. Подойдёт длинная уникальная фраза, сохранённая в менеджере паролей.</p>
+          <button type="submit" class="primary">Сменить пароль и завершить все сеансы</button>
+        </form>
+      </section>
+      <section id="audit-panel" class="card" hidden><h2>Последние действия</h2><p class="muted">В журнал не записываются пароли, имена и телефоны клиентов.</p><ul id="audit-list" class="audit"></ul></section>
+    </div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <dialog id="delete-dialog"><form method="dialog"><h2>Удалить заявку?</h2><p>Имя и телефон будут удалены из рабочей базы. Отменить действие нельзя.</p><div class="actions"><button value="cancel">Отмена</button><button value="delete" class="danger">Удалить</button></div></form></dialog>
+    <dialog id="news-delete-dialog"><form method="dialog"><h2>Удалить новость?</h2><p id="news-delete-hint"></p><div class="actions"><button value="cancel">Отмена</button><button value="delete" class="danger">Удалить новость</button></div></form></dialog>
+  </main>
+</body>
+</html>

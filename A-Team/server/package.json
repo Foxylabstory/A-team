@@ -4,11 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "test:ui": "node scripts/check-ui.js",
+    "db:init": "node scripts/manage.js init",
+    "db:backup": "node scripts/manage.js backup",
+    "admin:password": "node scripts/manage.js password"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=24.13.0"
+  },
   "dependencies": {
-    "express": "^4.19.2",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.1"
   }
 }
