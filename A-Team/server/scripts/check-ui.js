@@ -70,18 +70,36 @@ try {
       const emblem = document.querySelector('[data-antipov-logo="hero"]').getBoundingClientRect();
       const stats = document.querySelector('.hero-stats').getBoundingClientRect();
       const ids = [...document.querySelectorAll('section[id]')].map(el => el.id);
+      const caption = document.querySelector('.brand-caption');
+      const captionLine = parseFloat(getComputedStyle(caption).lineHeight);
+      const captionSingleLine = caption.getBoundingClientRect().height <= captionLine + 1;
+      const captionPartsUnbroken = [...caption.children].every(el => el.getBoundingClientRect().height <= captionLine + 1);
       return { overflow, clippedCells, logoCenter:(logo.left + logo.right) / 2, statsBelowLogo:stats.top >= emblem.bottom,
-        newsAboveDirections:ids.indexOf('news') < ids.indexOf('directions'), coachesAboveGallery:ids.indexOf('coaches') < ids.indexOf('gallery') };
+        captionSingleLine, captionPartsUnbroken, newsAboveDirections:ids.indexOf('news') < ids.indexOf('directions'), coachesAboveGallery:ids.indexOf('coaches') < ids.indexOf('gallery') };
     });
     assert.deepEqual(layout.overflow, [], `page content must fit ${width}px`);
     assert.deepEqual(layout.clippedCells, [], `all schedule columns must fit ${width}px`);
     if (width <= 900) assert.ok(Math.abs(layout.logoCenter - width / 2) < 1.5, `header logo must be centered at ${width}px`);
+    assert.ok(layout.captionPartsUnbroken, `club title and city must each stay on one line at ${width}px`);
+    if (width >= 777) assert.ok(layout.captionSingleLine, `caption must use one line when space permits at ${width}px`);
     assert.ok(layout.statsBelowLogo && layout.newsAboveDirections && layout.coachesAboveGallery);
     if (width === 320) {
       await page.screenshot({ path:path.join(screenshots, 'landing-mobile-320.png') });
       await page.locator('#schedule').screenshot({ path:path.join(screenshots, 'schedule-mobile-320.png') });
     }
   }
+  const cards = page.locator('#directions .direction-card');
+  assert.equal(await cards.count(), 7);
+  for (let index = 0; index < 7; index++) {
+    const card = cards.nth(index);
+    const target = await card.getAttribute('href');
+    assert.equal(await card.evaluate(el => getComputedStyle(el).cursor), 'pointer');
+    await card.click();
+    await page.waitForURL(`${origin}/${target}`);
+  }
+  await cards.first().press('Enter');
+  await page.waitForURL(`${origin}/#schedule-wrestling`);
+  console.log('PASS: all seven direction cards link to their schedule; keyboard navigation and responsive header caption work');
   const slider = page.locator('.discipline-window');
   const beforeRight = await slider.evaluate(el => el.scrollLeft);
   await page.getByRole('button', { name:'Следующие направления', exact:true }).click();
