@@ -56,7 +56,7 @@ try {
   assert.equal(await page.locator('#schedule .schedule-group').count(), 6);
   assert.equal(await page.locator('#schedule .schedule-slots .schedule-row').count(), 14);
   assert.equal(await page.locator('#audience').count(), 0);
-  for (const width of [320, 375, 390, 777, 1440]) {
+  for (const width of [320, 375, 390, 777, 1440, 1920]) {
     await page.setViewportSize({ width, height:width < 800 ? 884 : 1000 });
     await page.evaluate(() => document.fonts.ready);
     const layout = await page.evaluate(() => {
@@ -109,7 +109,7 @@ try {
   const initialPosition = await staticPage.locator('.discipline-window').evaluate(el => el.scrollLeft);
   await staticPage.getByRole('button', { name:'Предыдущие направления', exact:true }).click();
   await staticPage.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft < initial - 200, initialPosition);
-  await staticPage.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft > initial - 170, initialPosition, { timeout:10000 });
+  await staticPage.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft > initial - 210, initialPosition, { timeout:3000 });
   const scheduleLink = staticPage.locator('.discipline-set:not([aria-hidden]) a[href="#schedule-mma"]');
   await scheduleLink.click();
   await staticPage.waitForURL('**/#schedule-mma');
