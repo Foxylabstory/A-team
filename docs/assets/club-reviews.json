@@ -1,4 +1,39 @@
 {
-  "cardUrl": "https://2gis.ru/nabchelny/search/Antipov%20team",
-  "widgetUrl": ""
+  "schemaVersion": 1,
+  "placeId": "70000001096882624",
+  "source": "2gis",
+  "cardUrl": "https://2gis.ru/nabchelny/firm/70000001096882624",
+  "reviewsUrl": "https://2gis.ru/nabchelny/firm/70000001096882624/tab/reviews",
+  "rating": 5,
+  "reviewCount": 46,
+  "updatedAt": "2026-11-03T06:29:07.112Z",
+  "reviews": [
+    {
+      "id": "191099570",
+      "name": "Посетитель клуба",
+      "text": "Отличный зал, всегда чисто \nПерсонал дружелюбный \nПрофессиональные тренера)",
+      "rating": 5,
+      "createdAt": "2025-10-06T15:04:36.645Z",
+      "editedAt": "2025-10-06T18:57:41.988Z",
+      "url": "https://2gis.ru/nabchelny/firm/70000001096882624/tab/reviews"
+    },
+    {
+      "id": "187404266",
+      "name": "Мария",
+      "text": "Лучшие тренеры😍 ученики добиваются хороших результатов 🤩 и к каждому ребенку находят свой подход",
+      "rating": 5,
+      "createdAt": "2025-09-19T08:52:49.890Z",
+      "editedAt": null,
+      "url": "https://2gis.ru/nabchelny/firm/70000001096882624/tab/reviews"
+    },
+    {
+      "id": "187403965",
+      "name": "Амалия Низамова",
+      "text": "Лучший клуб, хороший состав. Очень много возможностей и разных направлениях единоборств 😍",
+      "rating": 5,
+      "createdAt": "2025-09-19T08:51:23.621Z",
+      "editedAt": null,
+      "url": "https://2gis.ru/nabchelny/firm/70000001096882624/tab/reviews"
+    }
+  ]
 }
