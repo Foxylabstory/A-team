@@ -227,6 +227,28 @@ test("all landing versions have real submission and matching consent; embedded s
   }
 });
 
+test("developer contact reveals the address on one tap and opens mail only on a double tap", async () => {
+  for (const filename of [path.resolve(ROOT, "../../index.html"), path.resolve(ROOT, "../../docs/index.html"), path.join(ROOT, "public/index.html")]) {
+    const html = await readFile(filename, "utf8");
+    const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);
+    const source = template.match(/<script type="text\/x-dc"[^>]*>([\s\S]*?)<\/script>/)[1];
+    let now = 1000;
+    const testWindow = { location:{ href:"" } };
+    class Logic { setState(patch) { this.state = { ...this.state, ...patch }; } }
+    const Component = new Function("DCLogic", "performance", "window", source + ";return Component;")(Logic, { now:() => now }, testWindow);
+    const component = new Component();
+    component.onDeveloperContact({ detail:1 });
+    assert.equal(component.state.developerEmailVisible, true);
+    assert.equal(testWindow.location.href, "");
+    now = 2000;
+    component.onDeveloperContact({ detail:1 });
+    assert.equal(testWindow.location.href, "", "separate taps must not open a mail app");
+    now = 2200;
+    component.onDeveloperContact({ detail:1 });
+    assert.ok(testWindow.location.href.startsWith("mailto:rushan.shakirzianov@gmail.com?subject="));
+  }
+});
+
 test("configuration rejects production without HTTPS and publicly exposed data directories", () => {
   assert.throws(() => loadConfig({ NODE_ENV: "production" }), /SITE_URL/);
   assert.throws(() => loadConfig({ DATA_DIR: "public/data" }), /outside public/);

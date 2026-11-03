@@ -83,7 +83,9 @@ try {
     }
   }
   const slider = page.locator('.discipline-window');
+  const beforeRight = await slider.evaluate(el => el.scrollLeft);
   await page.getByRole('button', { name:'Следующие направления', exact:true }).click();
+  await page.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft > initial + 180, beforeRight);
   const afterRight = await slider.evaluate(el => el.scrollLeft);
   await page.getByRole('button', { name:'Предыдущие направления', exact:true }).click();
   await page.waitForFunction(right => document.querySelector('.discipline-window').scrollLeft < right - 100, afterRight);
@@ -104,6 +106,18 @@ try {
   assert.ok(!staticRequests.some(url => new URL(url).pathname.startsWith('/api/')), 'static Pages must not call the server API');
   await staticPage.setViewportSize({ width:375, height:884 });
   await staticPage.screenshot({ path:path.join(screenshots, 'pages-mobile.png') });
+  const initialPosition = await staticPage.locator('.discipline-window').evaluate(el => el.scrollLeft);
+  await staticPage.getByRole('button', { name:'Предыдущие направления', exact:true }).click();
+  await staticPage.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft < initial - 200, initialPosition);
+  await staticPage.waitForFunction(initial => document.querySelector('.discipline-window').scrollLeft > initial - 170, initialPosition, { timeout:10000 });
+  const scheduleLink = staticPage.locator('.discipline-set:not([aria-hidden]) a[href="#schedule-mma"]');
+  await scheduleLink.click();
+  await staticPage.waitForURL('**/#schedule-mma');
+  const developer = staticPage.getByRole('button', { name:/Хочу такой же крутой сайт/ });
+  await developer.click();
+  await staticPage.getByText('rushan.shakirzianov@gmail.com', { exact:true }).waitFor();
+  await staticPage.locator('.developer-credit').screenshot({ path:path.join(screenshots, 'developer-contact.png') });
+  console.log('PASS: carousel resumes after manual scroll; discipline links open the right schedule; developer contact opens on a single tap');
   await staticPage.close();
   console.log('PASS: standalone Pages under /A-team/ loads logo and static news without API; signup uses the real phone');
   await page.locator('#contacts input[name="name"]').fill("Тестовая заявка с сайта");
