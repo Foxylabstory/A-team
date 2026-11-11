@@ -14,6 +14,9 @@ let loading = false;
 let newsPage = 1;
 let newsLoading = false;
 let newsImporting = false;
+let newsWatchingImport = false;
+let newsConfigured = false;
+let newsRunning = false;
 let editedNews = null;
 let previewUrl = "";
 
@@ -23,6 +26,7 @@ function message(text, error = false) {
 }
 function signedOut(text = "") {
   csrfToken = "";
+  newsWatchingImport = false;
   $("leads").replaceChildren();
   $("audit-list").replaceChildren();
   $("news-list").replaceChildren();
@@ -47,6 +51,14 @@ async function api(url, { method = "GET", body, keepLogin = false } = {}) {
       invalid_news: "Укажите заголовок до 120 символов и текст до 2000 символов.", invalid_date: "Проверьте дату публикации.",
       invalid_image: "Выберите настоящее изображение JPEG, PNG или WebP размером до 2 МБ.",
       instagram_not_configured: "Загрузка Instagram ещё не подключена на сервере. Ручные новости доступны.",
+      instagram_auth: "Instagram отклонил доступ. Нужно обновить токен или разрешение на чтение публикаций. Сохранённые новости остались на сайте.",
+      instagram_account_mismatch: "Подключён другой аккаунт Instagram. Проверьте настройки загрузчика. Сохранённые новости остались на сайте.",
+      instagram_login_required: "Instagram потребовал вход. На загрузчике нужно подключить или обновить сохранённую сессию Instagram.",
+      instagram_rate_limited: "Instagram временно ограничил запросы. Повторная проверка выполнится позже; сохранённые новости остались на сайте.",
+      instagram_private_profile: "Аккаунт закрыт. Загрузчик настроен на открытые публикации клуба.",
+      instagram_dependency_missing: "На загрузчике нужно установить Python и Instaloader.",
+      instagram_image_unavailable: "Не удалось скопировать обложку публикации. Сохранённые новости остались на сайте.",
+      instagram_timeout: "Instagram не успел ответить. Повторная проверка выполнится позже; сохранённые новости остались на сайте.",
       import_busy: "Загрузка из Instagram уже выполняется. Дождитесь завершения.",
       instagram_unavailable: "Не удалось загрузить Instagram. Проверьте подключение загрузчика и доступ к аккаунту. Сохранённые новости остались на сайте.",
       instagram_readonly: "Текст публикации Instagram обновляется при импорте. Её можно скрыть с сайта." };
@@ -196,6 +208,9 @@ function newsCard(item) {
   const source = item.source === "instagram" ? "Instagram" : "Ручная публикация";
   body.append(element("div", `${source} · ${item.display_date}${item.hidden ? " · Скрыта с сайта" : ""}`, "news-meta"),
     element("h2", item.title), element("p", item.text, "news-body"));
+  if (item.has_video) body.append(element("p", item.video ? "Видео сохранено для актуальной новости." : item.video_error === "video_too_large"
+    ? "Видео превышает 100 МБ. На сайте показывается обложка." : item.video_error ? "Видео не удалось загрузить. На сайте показывается обложка."
+      : "Видео хранится только для трёх актуальных новостей; при возвращении записи загрузчик попробует получить ролик повторно.", "muted"));
   const actions = element("div", undefined, "actions");
   if (item.source === "manual") {
     const edit = element("button", "Редактировать"); edit.type = "button";
@@ -249,10 +264,28 @@ async function loadNews() {
     $("news-page-label").textContent = `${data.page} / ${Math.max(1, Math.ceil(data.total / data.pageSize))}`;
     $("news-previous").disabled = data.page <= 1;
     $("news-next").disabled = data.page * data.pageSize >= data.total;
-    $("import-news").disabled = !data.importConfigured || newsImporting;
-    $("news-import-hint").textContent = data.importConfigured
-      ? `По кнопке загружаются последние шесть публикаций с #${data.hashtag}. Удалённые с сайта записи остаются скрытыми.${data.lastImport ? ` Последняя успешная загрузка: ${date(data.lastImport)} МСК.` : ""}`
-      : "Загрузка из Instagram пока не подключена на сервере. Ручные новости уже можно добавлять.";
+    newsConfigured = data.importConfigured;
+    newsRunning = data.importing;
+    $("import-news").disabled = !newsConfigured || newsImporting || newsRunning;
+    const notes = [];
+    if (data.importConfigured) {
+      notes.push(`${data.account ? `@${data.account}: ` : ""}последние шесть публикаций с #${data.hashtag}.`);
+      notes.push(data.autoUpdate ? "Автоматическое обновление — раз в сутки." : "Загрузка по кнопке.");
+      notes.push("Удалённые с сайта записи остаются скрытыми.");
+      if (data.lastImport) notes.push(`Последняя успешная загрузка: ${date(data.lastImport)} МСК.`);
+      if (data.importing) notes.push("Идёт фоновая загрузка. Можно закрыть страницу; новости появятся после завершения.");
+      const errors = { instagram_auth: "Instagram отклонил доступ: обновите токен или разрешения.", instagram_account_mismatch: "В загрузчике подключён другой аккаунт.",
+        instagram_login_required: "Instagram потребовал вход: обновите сохранённую сессию на загрузчике.", instagram_rate_limited: "Instagram временно ограничил запросы.",
+        instagram_private_profile: "Аккаунт Instagram закрыт.", instagram_dependency_missing: "На загрузчике нужно установить Python и Instaloader." };
+      if (data.lastError) notes.push(errors[data.lastError] || "Источник недоступен. Сохранённые новости остались на сайте.");
+      if (data.autoUpdate && data.nextImport > Date.now()) notes.push(`Следующая проверка: ${date(data.nextImport)} МСК.`);
+    } else notes.push(`Для загрузки${data.account ? ` из @${data.account}` : ""} нужно подключить загрузчик Instagram. Ручные новости уже можно добавлять.`);
+    $("news-import-hint").textContent = notes.join(" ");
+    if (data.importing) newsWatchingImport = true;
+    else if (newsWatchingImport) {
+      newsWatchingImport = false;
+      message(data.lastError ? "Не удалось обновить Instagram. Подробности указаны в разделе новостей; прежние записи сохранены." : importSummary(data.lastResult || {}), !!data.lastError);
+    }
   } finally {
     newsLoading = false;
     $("refresh-news").disabled = false;
@@ -332,15 +365,23 @@ $("news-form").addEventListener("submit", async event => {
 $("import-news").addEventListener("click", async () => {
   const button = $("import-news");
   newsImporting = true; button.disabled = true; button.textContent = "Загружаем…";
-  message("Загружаем публикации и фотографии. Это может занять до минуты.");
+  message("Загружаем публикации и фотографии. Сбор может занять несколько минут.");
   try {
     const data = await api("/api/admin/news/import", { method: "POST", body: {} });
     newsPage = 1; $("news-filter").value = "all";
+    newsWatchingImport = data.pending === true;
     await loadNews();
-    message(`Загрузка завершена. Добавлено: ${data.added}, обновлено: ${data.updated}, оставлено скрытыми: ${data.skipped}.${data.truncated ? " Проверены последние 500 публикаций аккаунта." : ""}`);
+    if (data.pending && newsRunning) message("Загрузка запущена в фоне. Можно закрыть страницу — новости сохранятся после завершения.");
+    else if (!data.pending) message(importSummary(data));
   } catch (error) { message(error.message, true); }
-  finally { newsImporting = false; button.textContent = "Загрузить из Instagram"; if (csrfToken) button.disabled = false; }
+  finally { newsImporting = false; button.textContent = "Загрузить из Instagram"; if (csrfToken) button.disabled = !newsConfigured || newsRunning; }
 });
+function importSummary(data) {
+  return `Загрузка завершена. Добавлено: ${data.added || 0}, обновлено: ${data.updated || 0}, оставлено скрытыми: ${data.skipped || 0}.${data.found === 0 ? " Публикаций с нужным хештегом не найдено." : ""}${data.truncated ? ` Проверены последние ${data.scanLimit || 500} публикаций аккаунта; более старые не просматривались.` : ""}${data.videosAdded ? ` Видео загружено: ${data.videosAdded}.` : ""}${data.videosFailed ? ` Видео не загружено: ${data.videosFailed}; для этих новостей сохранена обложка.` : ""}`;
+}
+setInterval(() => {
+  if (csrfToken && currentTab === "news" && newsWatchingImport && !document.hidden) loadNews().catch(error => message(error.message, true));
+}, 3000);
 $("news-filter").addEventListener("change", () => { newsPage = 1; loadNews().catch(error => message(error.message, true)); });
 $("refresh-news").addEventListener("click", () => loadNews().catch(error => message(error.message, true)));
 $("news-previous").addEventListener("click", () => { newsPage--; loadNews().catch(error => message(error.message, true)); });

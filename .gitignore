@@ -7,3 +7,7 @@ A-Team/server/screenshots/
 *.sqlite-wal
 *.sqlite-shm
 /tmp/
+A-Team/server/instagram-loader/private/
+.venv/
+__pycache__/
+*.pyc

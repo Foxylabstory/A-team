@@ -1,0 +1,21 @@
+[Unit]
+Description=Antipov Team website
+After=network.target
+
+[Service]
+Type=exec
+User=antipov
+Group=antipov
+WorkingDirectory=/srv/antipov-team/releases/current
+ExecStart=/usr/bin/env node server.js
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/antipov-team
+
+[Install]
+WantedBy=multi-user.target

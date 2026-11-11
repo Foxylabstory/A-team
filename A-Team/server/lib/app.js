@@ -3,6 +3,7 @@ import { openDatabase, saveLead, CONSENT_VERSION, CONSENT_TEXT, STATUSES, audit,
 import { hashPassword, verifyPassword, replacePassword, createSession, findSession, validPassword, COOKIE, cookieOptions } from "./auth.js";
 import { createNotifier } from "./notifications.js";
 import { installNews } from "./news.js";
+import { createReviewsUpdater } from './reviews.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -10,6 +11,7 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
   const db = openDatabase(config.dbPath);
   const app = express();
   const notifier = createNotifier(db, config, fetchImpl);
+  const reviews = createReviewsUpdater(config, { fetchImpl });
   let passwordChecks = 0;
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);
@@ -152,7 +154,12 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
     res.json({ ok: true, items: db.prepare("SELECT * FROM audit ORDER BY id DESC LIMIT 50").all() });
   });
 
-  installNews(app, { db, config, auth, asyncRoute, fetchImpl, limit });
+  const news = installNews(app, { db, config, auth, asyncRoute, fetchImpl, limit });
+  app.get('/api/reviews', (_req,res) => {
+    res.set('Cache-Control','public, max-age=300');
+    const snapshot=reviews.get();
+    res.json({ok:true,...(snapshot || {reviews:[]})});
+  });
   app.use("/api", (_req, res) => res.status(404).json({ ok: false, error: "not_found" }));
   app.use(express.static(config.publicDir, { dotfiles: "deny" }));
   app.use((error, _req, res, _next) => {
@@ -166,5 +173,5 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
     catch { console.error("database_maintenance_failed"); }
   }, 3600000);
   maintenance.unref();
-  return { app, db, notifier, async close() { clearInterval(maintenance); await notifier.stop(); db.close(); } };
+  return { app, db, notifier, reviews, news, async close() { clearInterval(maintenance); await news.stop(); await reviews.stop(); await notifier.stop(); db.close(); } };
 }

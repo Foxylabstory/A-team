@@ -11,6 +11,8 @@ const server = application.app.listen(config.port, config.host, () => {
   }
   if (!application.notifier.configured) console.log("Telegram не настроен. Заявки сохраняются в базе.");
   application.notifier.start();
+  application.reviews.start();
+  application.news.start();
 });
 server.on("error", async (error) => {
   console.error("Не удалось запустить сервер:", error.code || error.name);

@@ -9,17 +9,35 @@ export async function collectInstagram(config, fetchImpl = fetch) {
   const signal = AbortSignal.timeout(45000);
   const host = config.instagramLogin === "instagram" ? "graph.instagram.com" : "graph.facebook.com";
   const base = `https://${host}/${config.instagramVersion}/${config.instagramUser}/media`;
+  const graph = async url => {
+    const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instagramToken}` }, signal, redirect: "error" });
+    if ([401, 403].includes(response.status)) throw new Error("instagram_auth");
+    const payload = JSON.parse((await readLimited({ ok: true, headers: response.headers, body: response.body }, 1024 * 1024)).toString("utf8"));
+    if (payload.error) throw new Error(payload.error.code === 190 ? "instagram_auth" : "instagram_response");
+    if (!response.ok) throw new Error("instagram_response");
+    return payload;
+  };
+  let accountUsername = "";
+  if (config.instagramUsername) {
+    const accountUrl = new URL(`https://${host}/${config.instagramVersion}/${config.instagramUser}`);
+    accountUrl.searchParams.set("fields", "id,username");
+    const account = await graph(accountUrl);
+    if (String(account.id) !== config.instagramUser || typeof account.username !== "string" || account.username.toLowerCase() !== config.instagramUsername) {
+      throw new Error("instagram_account_mismatch");
+    }
+    accountUsername = account.username.toLowerCase();
+  }
   const collected = new Map();
   let after;
   const cursors = new Set();
   let truncated = false;
+  let scanned = 0;
   for (let page = 0; page < 10; page++) {
     const url = new URL(base);
     url.search = new URLSearchParams({ fields: "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp", limit: "50", ...(after ? { after } : {}) });
-    const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${config.instagramToken}` }, signal, redirect: "error" });
-    const bytes = await readLimited(response, 1024 * 1024);
-    const payload = JSON.parse(bytes.toString("utf8"));
-    if (!Array.isArray(payload.data)) throw new Error("instagram_response");
+    const payload = await graph(url);
+    if (!Array.isArray(payload.data) || payload.data.length > 50) throw new Error("instagram_response");
+    scanned += payload.data.length;
     for (const media of payload.data) {
       const caption = String(media.caption || "").normalize("NFKC");
       if (hashtagPattern(config.instagramHashtag).test(caption) && /^\d+$/.test(media.id || "")) collected.set(media.id, media);
@@ -47,5 +65,5 @@ export async function collectInstagram(config, fetchImpl = fetch) {
     }
     items.push({ id: media.id, caption: String(media.caption || ""), timestamp: media.timestamp, link: media.permalink || "", image });
   }
-  return { schemaVersion: 1, hashtag: config.instagramHashtag, items, truncated };
+  return { schemaVersion: 1, hashtag: config.instagramHashtag, accountUsername, items, truncated, scanned };
 }

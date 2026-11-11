@@ -1,0 +1,8 @@
+*
+!/*.js
+!/instaloader-news.py
+!/package.json
+!/requirements.txt
+!/Dockerfile
+!/.dockerignore
+!/.railwayignore

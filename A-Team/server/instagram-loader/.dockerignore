@@ -1,0 +1,6 @@
+*
+!*.js
+!*.py
+!package.json
+!requirements.txt
+!Dockerfile

@@ -48,6 +48,7 @@ export function openDatabase(filename) {
       id TEXT PRIMARY KEY, source TEXT NOT NULL CHECK(source IN ('manual','instagram')),
       source_id TEXT UNIQUE, published_at INTEGER NOT NULL, display_date TEXT NOT NULL,
       title TEXT NOT NULL, text TEXT NOT NULL, image TEXT NOT NULL DEFAULT '',
+      video TEXT NOT NULL DEFAULT '', has_video INTEGER NOT NULL DEFAULT 0 CHECK(has_video IN (0,1)), video_error TEXT NOT NULL DEFAULT '',
       link TEXT NOT NULL DEFAULT '', hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     ) STRICT;
@@ -55,8 +56,12 @@ export function openDatabase(filename) {
     CREATE TABLE IF NOT EXISTS news_uploads (
       filename TEXT PRIMARY KEY, created_at INTEGER NOT NULL
     ) STRICT;
-    PRAGMA user_version = 2;
   `);
+  const columns = new Set(db.prepare("PRAGMA table_info(news_items)").all().map(column => column.name));
+  for (const [name, definition] of [["video", "TEXT NOT NULL DEFAULT ''"], ["has_video", "INTEGER NOT NULL DEFAULT 0 CHECK(has_video IN (0,1))"], ["video_error", "TEXT NOT NULL DEFAULT ''"]]) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE news_items ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec("PRAGMA user_version = 3");
   db.prepare("INSERT OR IGNORE INTO settings VALUES ('rate_salt', ?)").run(randomBytes(32).toString("hex"));
   return db;
 }

@@ -31,7 +31,8 @@ export function loadConfig(env = process.env) {
   const newsFeedUrl = env.IG_NEWS_FEED_URL || "";
   if (newsFeedUrl) {
     const url = new URL(newsFeedUrl);
-    if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error("IG_NEWS_FEED_URL must be HTTPS without credentials.");
+    const localPreview = !production && url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname);
+    if ((url.protocol !== "https:" && !localPreview) || url.username || url.password || url.hash) throw new Error("IG_NEWS_FEED_URL requires HTTPS; development also allows HTTP on loopback only.");
     if (!env.IG_NEWS_FEED_TOKEN || env.IG_NEWS_FEED_TOKEN.length < 32) throw new Error("IG_NEWS_FEED_TOKEN needs at least 32 characters.");
   }
   const instagramVersion = env.IG_API_VERSION || "v25.0";
@@ -40,6 +41,8 @@ export function loadConfig(env = process.env) {
   if (!["facebook", "instagram"].includes(instagramLogin)) throw new Error("IG_LOGIN must be facebook or instagram.");
   const instagramHashtag = (env.IG_NEWS_HASHTAG || "новости").replace(/^#/, "").normalize("NFKC").toLowerCase();
   if (!/^[\p{L}\p{N}_]{1,80}$/u.test(instagramHashtag)) throw new Error("Invalid IG_NEWS_HASHTAG.");
+  const instagramUsername = (env.IG_NEWS_ACCOUNT || "").replace(/^@/, "").toLowerCase();
+  if (instagramUsername && !/^[a-z0-9._]{1,30}$/.test(instagramUsername)) throw new Error("IG_NEWS_ACCOUNT must be an Instagram username, without a URL.");
   return {
     root: ROOT, publicDir, dataDir, dbPath: path.join(dataDir, "club.sqlite"),
     production, siteUrl: siteUrl?.origin || "", retentionDays,
@@ -47,8 +50,10 @@ export function loadConfig(env = process.env) {
     trustProxy: env.TRUST_PROXY === "loopback" ? "loopback" : false,
     telegramToken: env.TG_BOT_TOKEN || "", telegramChat: env.TG_CHAT_ID || "",
     instagramUser: env.IG_USER_ID || "", instagramToken: env.IG_ACCESS_TOKEN || "",
-    instagramVersion, instagramLogin, instagramHashtag, newsFeedUrl,
+    instagramVersion, instagramLogin, instagramHashtag, instagramUsername, newsFeedUrl,
+    newsAutoUpdate: env.NEWS_AUTO_UPDATE !== "false",
+    newsAsyncImport: env.NEWS_ASYNC_IMPORT === "true",
     newsFeedToken: env.IG_NEWS_FEED_TOKEN || "",
-    sessionHours: 8
+    apifyToken:env.APIFY_TOKEN?.trim() || '', reviewsAutoUpdate:env.REVIEWS_AUTO_UPDATE !== 'false', sessionHours: 8
   };
 }

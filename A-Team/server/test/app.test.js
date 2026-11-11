@@ -10,6 +10,7 @@ import { CONSENT_VERSION, CONSENT_TEXT, openDatabase, saveLead, maintainDatabase
 import { hashPassword, replacePassword, createSession, hashToken } from "../lib/auth.js";
 import { createBackup } from "../lib/backup.js";
 import { DatabaseSync } from "node:sqlite";
+import { collectInstagram } from "../instagram-loader/instagram.js";
 
 const PASSWORD = "test-only password phrase 2026";
 const NEW_PASSWORD = "another test-only password phrase";
@@ -376,17 +377,18 @@ test("direct Instagram import paginates and filters before selecting six latest 
   assert.equal(pageCalls, 2);
   assert.equal(images, 6);
   const items = (await f.request("/api/news")).data.items;
-  assert.equal(items.length, 6);
+  assert.equal(items.length, 3);
   assert.equal(items[0].title, "Событие 6");
-  assert.equal(items[5].title, "Событие 1");
+  assert.equal(items[2].title, "Событие 4");
 });
 
-test("legacy manual news migrate once without duplication and the public feed shows six newest items", async t => {
+test("legacy manual news migrate once without duplication and the public feed shows three newest items", async t => {
   const legacy = Array.from({ length: 8 }, (_, i) => ({ id: `old-${i}`, title: `Новость ${i}`, date: `2026-10-${10 + i}`, text: "Старый текст" }));
   const f = await fixture(t, {}, undefined, async directory => writeFile(path.join(directory, "news.json"), JSON.stringify(legacy)));
   const items = (await f.request("/api/news")).data.items;
-  assert.equal(items.length, 6);
+  assert.equal(items.length, 3);
   assert.equal(items[0].title, "Новость 7");
+  assert.equal(items[2].title, "Новость 5");
   assert.equal(f.db.prepare("SELECT count(*) AS n FROM news_items").get().n, 8);
   const second = createApplication(f.config);
   try { assert.equal(second.db.prepare("SELECT count(*) AS n FROM news_items").get().n, 8); }
@@ -399,6 +401,243 @@ test("Instagram import reports missing setup instead of fake success", async t =
   const session = await f.login();
   assert.equal((await f.request("/api/admin/news", session)).data.importConfigured, false);
   assert.equal((await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} })).data.error, "instagram_not_configured");
+});
+
+test("automatic Instagram updates run daily, share in-flight work and survive restart", async t => {
+  let calls = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", newsFeedToken: "source-only-secret", instagramUsername: "antipov__team" }, async () => {
+    calls++;
+    await gate;
+    return jsonResponse({ schemaVersion: 1, hashtag: "новости", accountUsername: "antipov__team", scanned: 20, items: [imported()] });
+  });
+  await initialize(f);
+  const session = await f.login();
+  assert.equal((await f.request("/api/admin/news", session)).data.autoUpdate, true);
+  await f.request("/api/news");
+  assert.equal(calls, 0, "a visitor cannot start an import");
+  const first = f.news.refresh({ automatic: true });
+  assert.equal(f.news.refresh({ automatic: true }), first);
+  await assert.rejects(f.news.refresh(), /import_busy/);
+  release();
+  assert.equal((await first).scanned, 20);
+  assert.equal(calls, 1);
+  assert.equal(await f.news.refresh({ automatic: true }), null);
+  const info = (await f.request("/api/admin/news", session)).data;
+  assert.equal(info.account, "antipov__team");
+  assert.ok(info.nextImport >= info.lastImport + 86400000);
+  assert.equal(info.lastError, "");
+  const second = createApplication(f.config, { fetchImpl: async () => { throw new Error("not due after restart"); } });
+  try { assert.equal(await second.news.refresh({ automatic: true }), null); }
+  finally { await second.close(); }
+  f.db.prepare("UPDATE settings SET value=? WHERE key IN ('news_last_import','news_last_attempt')").run(String(Date.now() - 90000000));
+  assert.equal((await f.news.refresh({ automatic: true })).updated, 1);
+  assert.equal(calls, 2);
+  assert.equal((await f.request("/api/news")).data.items.length, 1);
+});
+
+test("failed automatic imports retain news and persist one-hour retry backoff", async t => {
+  let calls = 0;
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", newsFeedToken: "never-return-this-secret" }, async () => {
+    calls++;
+    throw new Error("network failure including never-return-this-secret");
+  });
+  await initialize(f);
+  const session = await f.login();
+  await f.request("/api/admin/news", { method: "POST", ...session, body: { title: "Новости клуба сохранены" } });
+  await assert.rejects(f.news.refresh({ automatic: true }), /^Error: instagram_unavailable$/);
+  assert.equal(await f.news.refresh({ automatic: true }), null);
+  const info = (await f.request("/api/admin/news", session)).data;
+  assert.equal(info.lastError, "instagram_unavailable");
+  assert.ok(info.nextImport >= info.lastAttempt + 3600000);
+  assert.ok(!JSON.stringify(info).includes("never-return-this-secret"));
+  const second = createApplication(f.config, { fetchImpl: async () => { calls++; throw new Error("should not retry"); } });
+  try { assert.equal(await second.news.refresh({ automatic: true }), null); }
+  finally { await second.close(); }
+  assert.equal(calls, 1);
+  assert.equal((await f.request("/api/news")).data.items[0].title, "Новости клуба сохранены");
+});
+
+test("disabled or unconfigured news scheduler never starts an outbound request", async t => {
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", newsAutoUpdate: false });
+  f.news.start();
+  assert.equal(await f.news.refresh({ automatic: true }), null);
+  assert.equal(f.db.prepare("SELECT value FROM settings WHERE key='news_last_attempt'").get(), undefined);
+  const second = await fixture(t);
+  second.news.start();
+  assert.equal(second.news.configured, false);
+  await assert.rejects(second.news.refresh(), /instagram_not_configured/);
+});
+
+test("the configured Instagram account is checked before any post is published", async t => {
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", instagramUsername: "antipov__team" }, async () =>
+    jsonResponse({ schemaVersion: 1, hashtag: "новости", accountUsername: "another_club", items: [imported()] }));
+  await initialize(f);
+  const session = await f.login();
+  const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+  assert.equal(result.status, 502);
+  assert.equal(result.data.error, "instagram_account_mismatch");
+  assert.equal(f.db.prepare("SELECT count(*) AS n FROM news_items").get().n, 0);
+});
+
+test("official Instagram API validates the account and does not send tokens in URLs", async () => {
+  const calls = [];
+  const config = { instagramUser: "12345", instagramToken: "private-instagram-token", instagramVersion: "v25.0", instagramLogin: "instagram", instagramHashtag: "новости", instagramUsername: "antipov__team" };
+  const result = await collectInstagram(config, async (value, options) => {
+    const url = new URL(value);
+    calls.push(url.href);
+    assert.equal(url.hostname, "graph.instagram.com");
+    assert.equal(options.headers.Authorization, "Bearer private-instagram-token");
+    assert.equal(options.redirect, "error");
+    assert.ok(!url.href.includes("private-instagram-token"));
+    return url.pathname.endsWith("/media") ? jsonResponse({ data: [] }) : jsonResponse({ id: "12345", username: "ANTIPOV__TEAM" });
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(result.accountUsername, "antipov__team");
+  assert.equal(result.scanned, 0);
+  assert.deepEqual(result.items, []);
+  await assert.rejects(collectInstagram(config, async () => jsonResponse({ id: "12345", username: "another_club" })), /instagram_account_mismatch/);
+  await assert.rejects(collectInstagram(config, async () => new Response("{}", { status: 401 })), /instagram_auth/);
+  await assert.rejects(collectInstagram(config, async () => new Response(JSON.stringify({ error: { code: 190, message: "private-token-details" } }), { status: 400 })), /^Error: instagram_auth$/);
+});
+
+test("loader authentication failures are actionable without exposing its response", async t => {
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news" }, async () =>
+    new Response(JSON.stringify({ ok: false, error: "instagram_auth", privateDetails: "do-not-expose" }), { status: 502 }));
+  await initialize(f);
+  const session = await f.login();
+  const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+  assert.equal(result.status, 502);
+  assert.equal(result.data.error, "instagram_auth");
+  assert.ok(!result.text.includes("do-not-expose"));
+  assert.equal((await f.request("/api/admin/news", session)).data.lastError, "instagram_auth");
+});
+
+test("background Instagram imports return immediately and publish after loader polling completes", async t => {
+  let calls = 0;
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", newsAsyncImport: true }, async (_url, options) => {
+    calls++;
+    if (calls === 1) {
+      assert.equal(options.headers["X-News-Refresh"], "1");
+      return new Response(JSON.stringify({ ok: true, pending: true }), { status: 202, headers: { "Retry-After": "1" } });
+    }
+    assert.equal(options.headers["X-News-Refresh"], undefined, "polling must not restart the source job");
+    return jsonResponse({ schemaVersion: 1, hashtag: "новости", generatedAt: "2026-11-03T10:00:00Z", scanned: 100, scanLimit: 100, items: [imported()] });
+  });
+  await initialize(f);
+  const session = await f.login();
+  const response = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+  assert.equal(response.status, 202);
+  assert.equal(response.data.pending, true);
+  assert.equal((await f.request("/api/admin/news", session)).data.importing, true);
+  assert.equal((await f.request("/api/news")).data.items.length, 0);
+  const result = await f.news.refresh({ automatic: true });
+  assert.equal(result.added, 1);
+  assert.equal(calls, 2);
+  const status = (await f.request("/api/admin/news", session)).data;
+  assert.equal(status.importing, false);
+  assert.equal(status.lastResult.scanLimit, 100);
+  assert.equal(status.sourceUpdated, Date.parse("2026-11-03T10:00:00Z"));
+  assert.equal((await f.request("/api/news")).data.items.length, 1);
+});
+
+test("unencrypted Instagram feed URLs are restricted to local development", () => {
+  const common = { IG_NEWS_FEED_TOKEN: "test-only-common-secret-of-32-characters" };
+  assert.equal(loadConfig({ ...common, IG_NEWS_FEED_URL: "http://127.0.0.1:3100/news" }).newsFeedUrl, "http://127.0.0.1:3100/news");
+  assert.throws(() => loadConfig({ ...common, IG_NEWS_FEED_URL: "http://loader.example/news" }), /HTTPS/);
+  assert.throws(() => loadConfig({ ...common, NODE_ENV: "production", SITE_URL: "https://club.example", IG_NEWS_FEED_URL: "http://127.0.0.1:3100/news" }), /HTTPS/);
+  assert.throws(() => loadConfig({ ...common, IG_NEWS_FEED_URL: "https://user:secret@loader.example/news" }), /HTTPS/);
+});
+
+const testVideo = id => Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from("ftypisom0000"), Buffer.from(String(id))]);
+const videoPost = id => ({ ...imported(String(id)), timestamp: `2026-10-${String(id).padStart(2, "0")}T12:00:00Z`, video: { id: String(id), contentType: "video/mp4" } });
+
+test("only the three visible news videos are downloaded, support seeking and are removed when evicted", async t => {
+  const downloaded = [];
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", newsFeedToken: "video-test-only-secret" }, async (value, options) => {
+    const url = new URL(value);
+    assert.equal(options.headers.Authorization, "Bearer video-test-only-secret");
+    if (url.pathname === "/news") return jsonResponse({ schemaVersion: 1, hashtag: "новости", items: [1, 2, 3, 4].map(videoPost) });
+    const id = /^\/videos\/(\d+)\.mp4$/.exec(url.pathname)?.[1];
+    assert.ok(id); downloaded.push(id);
+    const bytes = testVideo(id);
+    return new Response(bytes, { headers: { "Content-Type": "video/mp4", "Content-Length": String(bytes.length) } });
+  });
+  await initialize(f);
+  const session = await f.login();
+  const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+  assert.equal(result.status, 200);
+  assert.equal(result.data.videosAdded, 3);
+  assert.deepEqual(downloaded, ["4", "3", "2"]);
+  const items = (await f.request("/api/news")).data.items;
+  assert.equal(items.length, 3);
+  assert.ok(items.every(item => /^\/media\/news-video\/[a-f0-9]{64}\.mp4$/.test(item.video)));
+  const oldVideo = items[2].video;
+  const range = await f.request(oldVideo, { headers: { Range: "bytes=0-7" } });
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get("accept-ranges"), "bytes");
+  assert.match(range.headers.get("content-range"), /^bytes 0-7\//);
+  const created = await f.request("/api/admin/news", { method: "POST", ...session, body: { title: "Новая ручная новость", date: "2026-11-03" } });
+  await f.news.syncVideos();
+  assert.equal((await f.request(oldVideo)).status, 404);
+  await assert.rejects(readFile(path.join(f.config.dataDir, "news-videos", path.basename(oldVideo))), { code: "ENOENT" });
+  const archived = f.db.prepare("SELECT title,video,has_video FROM news_items WHERE source_id='2'").get();
+  assert.ok(archived.title);
+  assert.equal(archived.has_video, 1);
+  assert.equal(archived.video, "");
+  await f.request(`/api/admin/news/${created.data.item.id}`, { method: "DELETE", ...session, body: {} });
+  await f.news.syncVideos();
+  assert.equal((await f.request(oldVideo)).status, 200, "a visible archived news item is downloaded again when available");
+  assert.equal(downloaded.filter(id => id === "2").length, 2);
+});
+
+test("oversized or invalid video leaves a working news card and removes partial files", async t => {
+  for (const mode of ["oversized", "invalid"]) {
+    const f = await fixture(t, { newsFeedUrl: "https://loader.example/news" }, async value => {
+      if (new URL(value).pathname === "/news") return jsonResponse({ schemaVersion: 1, hashtag: "новости", items: [videoPost(1)] });
+      return mode === "oversized" ? new Response(testVideo(1), { headers: { "Content-Length": String(100 * 1024 * 1024 + 1) } }) : new Response("<html>not a video</html>");
+    });
+    await initialize(f);
+    const session = await f.login();
+    const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+    assert.equal(result.status, 200);
+    assert.equal(result.data.added, 1);
+    assert.equal(result.data.videosFailed, 1);
+    const item = (await f.request("/api/news")).data.items[0];
+    assert.equal(item.video, "");
+    assert.ok(item.image);
+    const status = (await f.request("/api/admin/news", session)).data;
+    assert.equal(status.items[0].video_error, mode === "oversized" ? "video_too_large" : "video_unavailable");
+    const { readdir } = await import("node:fs/promises");
+    const files = await readdir(path.join(f.config.dataDir, "news-videos")).catch(() => []);
+    assert.deepEqual(files, []);
+  }
+});
+
+test("a video that becomes obsolete during its download is never published or kept", async t => {
+  let release, entered, obsoleteAborted = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const downloading = new Promise(resolve => { entered = resolve; });
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news" }, async (value, options) => {
+    if (new URL(value).pathname === "/news") return jsonResponse({ schemaVersion: 1, hashtag: "новости", items: [videoPost(1)] });
+    entered();
+    await Promise.race([gate, new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => { obsoleteAborted = true; reject(new Error("cancelled")); }, { once: true }))]);
+    return new Response(testVideo(1));
+  });
+  await initialize(f);
+  const session = await f.login();
+  const importing = f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
+  await downloading;
+  for (let day = 1; day <= 3; day++) await f.request("/api/admin/news", { method: "POST", ...session, body: { title: `Новая новость ${day}`, date: `2027-01-0${day}` } });
+  release();
+  const result = await importing;
+  await f.news.syncVideos();
+  assert.equal(result.data.videosAdded, 0);
+  assert.equal(obsoleteAborted, true, "obsolete downloads stop consuming upstream bandwidth");
+  assert.equal(f.db.prepare("SELECT video FROM news_items WHERE source_id='1'").get().video, "");
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual(await readdir(path.join(f.config.dataDir, "news-videos")).catch(() => []), []);
 });
 
 test("backup includes the SQLite snapshot and every referenced local news photo", async t => {

@@ -7,6 +7,7 @@
     "start": "node server.js",
     "test": "node --test",
     "test:ui": "node scripts/check-ui.js",
+    "reviews:refresh": "node scripts/refresh-reviews.js",
     "db:init": "node scripts/manage.js init",
     "db:backup": "node scripts/manage.js backup",
     "admin:password": "node scripts/manage.js password"
