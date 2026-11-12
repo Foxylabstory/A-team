@@ -20,13 +20,29 @@
       <span class="eyebrow">Доступ для клуба</span>
       <h1>Вход администратора</h1>
       <p class="muted">Заявки и контакты доступны после входа.</p>
-      <form id="login-form">
+      <form id="login-form" method="post">
         <label for="login-password">Пароль</label>
         <input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="256" autofocus>
         <button type="submit" class="primary">Войти</button>
       </form>
-      <p class="muted small">Забыли пароль или подозреваете утечку? Восстановите доступ через владельца сервера. Публичной формы сброса пароля нет.</p>
+      <button id="open-recovery" type="button" class="account-link">Забыли пароль?</button>
       <a href="/">Вернуться на сайт ↗</a>
+    </section>
+    <section id="recovery-view" class="login card" hidden>
+      <h1>Восстановление доступа</h1>
+      <p class="muted">Введите сохранённый код и задайте новый пароль. После восстановления код станет недействительным.</p>
+      <form id="recovery-form" method="post">
+        <label for="recovery-code">Код восстановления</label>
+        <input id="recovery-code" name="code" type="password" autocomplete="off" required maxlength="80">
+        <label for="recovery-password">Новый пароль</label>
+        <input id="recovery-password" name="newPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
+        <label for="recovery-repeat">Повторите новый пароль</label>
+        <input id="recovery-repeat" name="repeatPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
+        <p class="muted small">Минимум 14 символов. После сброса все устройства выйдут из кабинета.</p>
+        <button type="submit" class="primary">Задать новый пароль</button>
+      </form>
+      <button id="close-recovery" type="button" class="account-link">Вернуться ко входу</button>
+      <p class="muted small">Если код потерян, доступ можно восстановить через владельца сервера.</p>
     </section>
     <div id="dashboard" hidden>
       <div class="heading"><div><span class="eyebrow">ANTIPOV TEAM</span><h1 id="dashboard-title">Заявки на тренировку</h1><p class="muted" id="dashboard-description">Контакты остаются в закрытом кабинете клуба.</p></div><button id="logout" type="button">Выйти</button></div>
@@ -65,13 +81,28 @@
       <section id="password-panel" class="card narrow" hidden>
         <h2>Смена пароля</h2>
         <p class="muted">После смены пароля все устройства выйдут из кабинета. Повторный вход потребуется и на этом устройстве.</p>
-        <form id="password-form">
+        <form id="password-form" method="post">
           <label for="current-password">Текущий пароль</label><input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required maxlength="256">
           <label for="new-password">Новый пароль</label><input id="new-password" name="newPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
           <label for="repeat-password">Повторите новый пароль</label><input id="repeat-password" name="repeatPassword" type="password" autocomplete="new-password" required minlength="14" maxlength="256">
-          <p class="muted small">Минимум 14 символов. Подойдёт длинная уникальная фраза, сохранённая в менеджере паролей.</p>
+          <p class="muted small">Минимум 14 символов. После смены пароля создайте новый код восстановления.</p>
           <button type="submit" class="primary">Сменить пароль и завершить все сеансы</button>
         </form>
+        <section class="recovery-setup" aria-labelledby="recovery-setup-title">
+          <h2 id="recovery-setup-title">Код восстановления</h2>
+          <p id="recovery-state" class="muted" aria-live="polite"></p>
+          <form id="recovery-setup-form" method="post">
+            <label for="recovery-current-password">Пароль для создания кода</label>
+            <input id="recovery-current-password" name="currentPassword" type="password" autocomplete="current-password" required maxlength="256">
+            <button id="issue-recovery-code" type="submit">Создать код</button>
+          </form>
+          <div id="recovery-output" class="recovery-output" hidden>
+            <label for="issued-recovery-code">Сохраните одноразовый код</label>
+            <input id="issued-recovery-code" type="text" readonly autocomplete="off" spellcheck="false">
+            <p class="muted small">Сохраните его в менеджере паролей под названием «Antipov Team — код восстановления». Код показывается один раз.</p>
+            <button id="copy-recovery-code" type="button">Скопировать код</button>
+          </div>
+        </section>
       </section>
       <section id="audit-panel" class="card" hidden><h2>Последние действия</h2><p class="muted">В журнал не записываются пароли, имена и телефоны клиентов.</p><ul id="audit-list" class="audit"></ul></section>
     </div>

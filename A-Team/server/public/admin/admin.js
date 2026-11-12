@@ -1,6 +1,8 @@
 const $ = id => document.getElementById(id);
 const statuses = { new: "Новая", contacted: "Связались", booked: "Записан", closed: "Закрыта" };
 const events = { admin_created: "Создан доступ администратора", password_changed_all_sessions_revoked: "Пароль изменён, все сеансы завершены",
+  recovery_code_created: 'Создан код восстановления',
+  password_recovered_all_sessions_revoked: 'Пароль восстановлен, все сеансы завершены',
   login_success: "Вход в кабинет", login_failed: "Неудачная попытка входа", logout: "Выход из кабинета",
   lead_created: "Поступила заявка", lead_status_changed: "Изменён статус заявки", lead_deleted: "Заявка удалена",
   leads_viewed: "Просмотрены заявки", notification_retried: "Повтор уведомления", retention_cleanup: "Удалены заявки по сроку хранения",
@@ -24,6 +26,25 @@ function message(text, error = false) {
   $("message").textContent = text;
   $("message").classList.toggle("error", error);
 }
+function showRecovery(visible) {
+  $('login-view').hidden = visible;
+  $('recovery-view').hidden = !visible;
+  $(visible ? 'login-form' : 'recovery-form').reset();
+}
+
+function clearRecoverySetup() {
+  $('recovery-setup-form').reset();
+  $('issued-recovery-code').value = '';
+  $('recovery-output').hidden = true;
+}
+
+function showRecoveryState(configured) {
+  $('recovery-state').textContent = configured
+    ? 'Код создан. При создании нового кода предыдущий станет недействительным.'
+    : 'Создайте код заранее, чтобы восстановить доступ на странице входа.';
+  $('issue-recovery-code').textContent = configured ? 'Заменить код' : 'Создать код';
+}
+
 function signedOut(text = "") {
   csrfToken = "";
   newsWatchingImport = false;
@@ -32,7 +53,8 @@ function signedOut(text = "") {
   $("news-list").replaceChildren();
   closeNewsEditor();
   $("dashboard").hidden = true;
-  $("login-view").hidden = false;
+  showRecovery(false);
+  clearRecoverySetup();
   $("password-form").reset();
   $("login-form").reset();
   message(text);
@@ -46,6 +68,7 @@ async function api(url, { method = "GET", body, keepLogin = false } = {}) {
     const errors = { too_many: "Слишком много попыток. Подождите перед повтором.", setup_required: "Пароль ещё не задан. Владельцу сервера нужно выполнить npm run admin:password.",
       invalid_password: "Пароль неверен.", weak_password: "Новый пароль должен содержать минимум 14 символов и не более 256 байт.",
       same_password: "Новый пароль должен отличаться от текущего.", unauthorized: "Сеанс завершён. Войдите заново.",
+      invalid_recovery_code: 'Код восстановления неверен или уже недействителен.',
       csrf: "Обновите страницу и повторите действие.", credentials_changed: "Доступ изменился. Войдите заново.",
       notifications_not_configured: "Сначала настройте Telegram на сервере.",
       invalid_news: "Укажите заголовок до 120 символов и текст до 2000 символов.", invalid_date: "Проверьте дату публикации.",
@@ -76,6 +99,8 @@ async function enter() {
   $("notification-hint").textContent = "Telegram пока не настроен. Все заявки сохраняются здесь; уведомления ожидают настройки.";
   $("retention-hint").textContent = `Срок хранения заявок в рабочей базе: ${session.retentionDays} дней. Срок задаётся владельцем сервера.`;
   $("login-view").hidden = true;
+  $('recovery-view').hidden = true;
+  showRecoveryState(session.recoveryConfigured);
   $("dashboard").hidden = false;
   $("login-form").reset();
   page = 1;
@@ -85,6 +110,7 @@ async function enter() {
   await selectTab("leads");
 }
 async function selectTab(tab) {
+  if (currentTab === 'password' && tab !== 'password') clearRecoverySetup();
   currentTab = tab;
   message("");
   document.querySelectorAll("[data-tab]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.tab === tab)));
@@ -314,6 +340,87 @@ $("login-form").addEventListener("submit", async event => {
   catch (error) { message(error.message, true); }
   finally { button.disabled = false; $("login-password").value = ""; }
 });
+$('open-recovery').addEventListener('click', () => {
+  showRecovery(true);
+  message('');
+  $('recovery-code').focus();
+});
+
+$('close-recovery').addEventListener('click', () => {
+  showRecovery(false);
+  message('');
+  $('login-password').focus();
+});
+
+$('recovery-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const { code, newPassword, repeatPassword } = form.elements;
+  if (newPassword.value !== repeatPassword.value) {
+    message('Новые пароли не совпадают.', true);
+    return;
+  }
+
+  const button = form.querySelector('button');
+  const back = $('close-recovery');
+  button.disabled = true;
+  back.disabled = true;
+  try {
+    await api('/api/admin/recover', {
+      method: 'POST',
+      body: { code: code.value, newPassword: newPassword.value },
+      keepLogin: true,
+    });
+    signedOut('Пароль восстановлен. Войдите с новым паролем и создайте новый код.');
+    $('login-password').focus();
+  } catch (error) {
+    message(error.message, true);
+  } finally {
+    button.disabled = false;
+    back.disabled = false;
+  }
+});
+
+$('recovery-setup-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const button = $('issue-recovery-code');
+  const session = csrfToken;
+  button.disabled = true;
+  try {
+    const { code } = await api('/api/admin/recovery-code', {
+      method: 'POST',
+      body: { currentPassword: form.elements.currentPassword.value },
+      keepLogin: true,
+    });
+    if (session !== csrfToken) return;
+    showRecoveryState(true);
+    if (currentTab !== 'password') return;
+    $('issued-recovery-code').value = code;
+    $('recovery-output').hidden = false;
+    $('issued-recovery-code').focus();
+    $('issued-recovery-code').select();
+    message('');
+  } catch (error) {
+    message(error.message, true);
+  } finally {
+    button.disabled = false;
+    form.reset();
+  }
+});
+
+$('copy-recovery-code').addEventListener('click', async () => {
+  const code = $('issued-recovery-code');
+  try {
+    await navigator.clipboard.writeText(code.value);
+    message('Код скопирован. Сохраните его в менеджере паролей.');
+  } catch {
+    code.focus();
+    code.select();
+    message('Код выделен. Скопируйте его вручную.');
+  }
+});
+
 $("logout").addEventListener("click", async () => {
   try { await api("/api/admin/logout", { method: "POST", body: {} }); signedOut("Вы вышли из кабинета."); }
   catch (error) { message(error.message, true); }

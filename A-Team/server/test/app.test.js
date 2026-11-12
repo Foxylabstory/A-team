@@ -161,11 +161,62 @@ test("server-side recovery works on a live database and expires existing session
   const f = await fixture(t);
   await initialize(f);
   const session = await f.login();
+  const issued = await f.request('/api/admin/recovery-code', {
+    method: 'POST', ...session, body: { currentPassword: PASSWORD },
+  });
+  assert.equal(issued.status, 200);
   const managementDb = openDatabase(f.config.dbPath);
   try { replacePassword(managementDb, await hashPassword(NEW_PASSWORD)); }
   finally { managementDb.close(); }
   assert.equal((await f.request("/api/admin/session", session)).status, 401);
+  const reset = await f.request('/api/admin/recover', {
+    method: 'POST', body: { code: issued.data.code, newPassword: PASSWORD },
+  });
+  assert.equal(reset.status, 401);
   assert.equal((await f.login(NEW_PASSWORD)).status, 200);
+});
+
+test('browser recovery replaces old codes and consumes the saved code atomically', async (t) => {
+  const f = await fixture(t);
+  await initialize(f);
+  const session = await f.login();
+  const issue = (credentials, currentPassword = PASSWORD) => f.request('/api/admin/recovery-code', {
+    method: 'POST', ...credentials, body: { currentPassword },
+  });
+  const recover = (code, newPassword = NEW_PASSWORD, headers = {}) => f.request('/api/admin/recover', {
+    method: 'POST', body: { code, newPassword }, headers,
+  });
+
+  assert.equal((await issue({})).status, 401);
+  assert.equal((await issue({ cookie: session.cookie })).status, 403);
+  assert.equal((await issue(session, 'wrong password')).status, 401);
+  const first = await issue(session);
+  const second = await issue(session);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(second.headers.get('cache-control'), 'no-store');
+  const { code } = second.data;
+  assert.match(code, /^[a-f0-9]{8}(?:-[a-f0-9]{8}){3}$/);
+  const sessionInfo = await f.request('/api/admin/session', session);
+  assert.equal(sessionInfo.data.recoveryConfigured, true);
+  assert.equal(sessionInfo.data.code, undefined);
+  const stored = f.db.prepare("SELECT value FROM settings WHERE key='admin_recovery_hash'").get();
+  assert.equal(stored.value, hashToken(code.replaceAll('-', '')));
+
+  assert.equal((await recover(first.data.code)).status, 401);
+  assert.equal((await recover(code, 'short')).status, 400);
+  assert.equal((await recover(code, NEW_PASSWORD, { Origin: 'https://elsewhere.example' })).status, 403);
+  const concurrent = await Promise.all([recover(code), recover(code.toUpperCase())]);
+  assert.deepEqual(concurrent.map(({ status }) => status).sort(), [200, 401]);
+  assert.equal((await recover(code)).status, 401);
+  assert.equal((await f.request('/api/admin/session', session)).status, 401);
+  assert.equal((await f.login()).status, 401);
+  const newSession = await f.login(NEW_PASSWORD);
+  assert.equal(newSession.status, 200);
+  assert.equal((await f.request('/api/admin/session', newSession)).data.recoveryConfigured, false);
+  const auditLog = await f.request('/api/admin/audit', newSession);
+  assert.ok(auditLog.data.items.some(({ action }) => action === 'password_recovered_all_sessions_revoked'));
+  assert.ok(!JSON.stringify(auditLog.data).includes(code));
 });
 
 test("login throttling survives reconnection and forged forwarded IPs do not bypass it", async t => {

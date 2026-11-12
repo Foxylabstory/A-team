@@ -6,6 +6,35 @@ const derive = promisify(scrypt);
 const options = { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 export const COOKIE = "antipov_session";
 export const hashToken = token => createHash("sha256").update(token).digest("hex");
+const RECOVERY_KEY = 'admin_recovery_hash';
+const recoveryHash = (db) => db.prepare('SELECT value FROM settings WHERE key=?')
+  .get(RECOVERY_KEY)?.value || '';
+
+export function hasRecoveryCode(db) {
+  return Boolean(recoveryHash(db));
+}
+
+export function issueRecoveryCode(db, cookieHeader, expectedVersion) {
+  return transaction(db, () => {
+    const session = findSession(db, cookieHeader);
+    if (!session || session.admin_version !== expectedVersion) return null;
+    const code = randomBytes(16).toString('hex');
+    db.prepare(`INSERT INTO settings VALUES(?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(RECOVERY_KEY, hashToken(code));
+    audit(db, 'recovery_code_created');
+    return code.match(/.{8}/g).join('-');
+  });
+}
+
+export function verifyRecoveryCode(db, code) {
+  if (typeof code !== 'string' || code.length > 80) return null;
+  const normalized = code.replace(/[\s-]/g, '').toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(normalized)) return null;
+  const stored = recoveryHash(db);
+  if (!/^[a-f0-9]{64}$/.test(stored)) return null;
+  const candidate = hashToken(normalized);
+  return timingSafeEqual(Buffer.from(candidate, 'hex'), Buffer.from(stored, 'hex')) ? candidate : null;
+}
 
 export function validPassword(password) {
   return typeof password === "string" && [...password].length >= 14 && Buffer.byteLength(password) <= 256;
@@ -26,18 +55,23 @@ export async function verifyPassword(password, encoded) {
   return timingSafeEqual(key, Buffer.from(hash, "hex"));
 }
 
-// An expected version prevents a simultaneous reset from being overwritten.
-export function replacePassword(db, passwordHash, expectedVersion = null) {
+// Recheck both credentials in the transaction after the password has been hashed.
+export function replacePassword(db, passwordHash, expectedVersion = null, expectedRecoveryHash = null) {
   return transaction(db, () => {
     const current = db.prepare("SELECT version FROM admin WHERE id=1").get();
     if (expectedVersion !== null && current?.version !== expectedVersion) return false;
+    if (expectedRecoveryHash !== null && recoveryHash(db) !== expectedRecoveryHash) return false;
     db.prepare(`INSERT INTO admin(id,password_hash,version,updated_at) VALUES(1,?,1,?)
       ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash,
       version=admin.version+1,updated_at=excluded.updated_at`).run(passwordHash, Date.now());
     db.exec("DELETE FROM sessions");
+    db.prepare('DELETE FROM settings WHERE key=?').run(RECOVERY_KEY);
     // Recovery from the server must also release a lock caused by an attacker.
     db.exec("DELETE FROM rate_limits");
-    audit(db, current ? "password_changed_all_sessions_revoked" : "admin_created");
+    const event = expectedRecoveryHash
+      ? 'password_recovered_all_sessions_revoked'
+      : 'password_changed_all_sessions_revoked';
+    audit(db, current ? event : 'admin_created');
     return true;
   });
 }

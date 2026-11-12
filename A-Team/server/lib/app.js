@@ -1,6 +1,9 @@
 import express from "express";
 import { openDatabase, saveLead, CONSENT_VERSION, CONSENT_TEXT, STATUSES, audit, rateLimit, maintainDatabase, transaction } from "./database.js";
-import { hashPassword, verifyPassword, replacePassword, createSession, findSession, validPassword, COOKIE, cookieOptions } from "./auth.js";
+import {
+  hashPassword, verifyPassword, replacePassword, createSession, findSession, validPassword,
+  hasRecoveryCode, issueRecoveryCode, verifyRecoveryCode, COOKIE, cookieOptions,
+} from './auth.js';
 import { createNotifier } from "./notifications.js";
 import { installNews } from "./news.js";
 import { createReviewsUpdater } from './reviews.js';
@@ -88,7 +91,7 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
   }));
   const sessionInfo = (req, res) => res.json({ ok: true, csrfToken: req.adminSession.csrf_token,
     expiresAt: req.adminSession.expires_at, notificationsConfigured: notifier.configured,
-    retentionDays: config.retentionDays });
+    retentionDays: config.retentionDays, recoveryConfigured: hasRecoveryCode(db) });
   app.get("/api/admin/session", auth, sessionInfo);
   app.get("/api/admin/check", auth, sessionInfo);
   app.post("/api/admin/logout", auth, (req, res) => {
@@ -112,6 +115,47 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
       res.clearCookie(COOKIE, { ...cookieOptions(config), maxAge: undefined });
       res.json({ ok: true });
     } finally { passwordChecks--; }
+  }));
+  app.post('/api/admin/recovery-code', auth, asyncRoute(async (req, res) => {
+    if (limit(req, res, 'recovery-code', 5, 15 * 60000)) return;
+    if (passwordChecks >= 2) return res.status(429).json({ ok: false, error: 'too_many' });
+    const admin = db.prepare('SELECT version,password_hash FROM admin WHERE id=1').get();
+    if (admin?.version !== req.adminSession.admin_version) {
+      return res.status(401).json({ ok: false, error: 'credentials_changed' });
+    }
+    passwordChecks += 1;
+    try {
+      if (!(await verifyPassword(req.body?.currentPassword, admin.password_hash))) {
+        return res.status(401).json({ ok: false, error: 'invalid_password' });
+      }
+      const code = issueRecoveryCode(db, req.headers.cookie, admin.version);
+      if (!code) return res.status(401).json({ ok: false, error: 'credentials_changed' });
+      res.json({ ok: true, code });
+    } finally {
+      passwordChecks -= 1;
+    }
+  }));
+  app.post('/api/admin/recover', asyncRoute(async (req, res) => {
+    if (limit(req, res, 'recover', 5, 15 * 60000)) return;
+    const { code, newPassword } = req.body || {};
+    if (!validPassword(newPassword)) return res.status(400).json({ ok: false, error: 'weak_password' });
+    const admin = db.prepare('SELECT version FROM admin WHERE id=1').get();
+    const verifiedHash = verifyRecoveryCode(db, code);
+    if (!admin || !verifiedHash) {
+      return res.status(401).json({ ok: false, error: 'invalid_recovery_code' });
+    }
+    if (passwordChecks >= 2) return res.status(429).json({ ok: false, error: 'too_many' });
+    passwordChecks += 1;
+    try {
+      const hash = await hashPassword(newPassword);
+      if (!replacePassword(db, hash, admin.version, verifiedHash)) {
+        return res.status(401).json({ ok: false, error: 'invalid_recovery_code' });
+      }
+      res.clearCookie(COOKIE, { ...cookieOptions(config), maxAge: undefined });
+      res.json({ ok: true });
+    } finally {
+      passwordChecks -= 1;
+    }
   }));
   app.get("/api/admin/leads", auth, (req, res) => {
     const status = req.query.status || "all";
