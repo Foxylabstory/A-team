@@ -380,6 +380,35 @@ test("legacy manual news migrate once without duplication and the public feed sh
   finally { await second.close(); }
 });
 
+test("existing Instagram captions are split at the first sentence and truncated records are refreshed", async t => {
+  const headline = "На этих выходных прошли соревнования в г. Казани, где спортсмены из нескольких регионов показали хорошие результаты и завоевали новые медали.";
+  const text = `Результаты турнира:\n\n${"Поздравляем участников с победой! ".repeat(65).trim()}`;
+  assert.ok(headline.length > 120 && text.length > 2000);
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news" }, async () =>
+    jsonResponse({ schemaVersion: 1, hashtag: "новости", items: [{ ...imported("201"), caption: `${headline} ${text} #новости` }] }), async directory => {
+    const db = openDatabase(path.join(directory, "test.sqlite"));
+    const add = db.prepare(`INSERT INTO news_items(id,source,source_id,published_at,display_date,title,text,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`);
+    const now = Date.now();
+    add.run("instagram:201", "instagram", "201", now, "2026-11-01", headline.slice(0, 120), text.slice(0, 2000), now, now);
+    add.run("instagram:202", "instagram", "202", now - 1000, "2026-10-31", "Г. Москва. Результаты уже известны.", "Вторая строка", now, now);
+    add.run("manual", "manual", null, now - 2000, "2026-10-30", "Ручная новость. Заголовок целиком.", "Ручной текст", now, now);
+    db.prepare("INSERT INTO settings VALUES ('news_last_import',?)").run(String(now - 7200000));
+    db.prepare("INSERT INTO settings VALUES ('news_last_attempt',?)").run(String(now - 7200000));
+    db.close();
+  });
+  const readNews = async id => (await f.request("/api/news")).data.items.find(item => item.id === id);
+  const archive = await readNews("instagram:202");
+  assert.equal(archive.title, "Г. Москва.");
+  assert.equal(archive.text, "Результаты уже известны.\nВторая строка");
+  assert.equal((await readNews("manual")).title, "Ручная новость. Заголовок целиком.");
+  const refreshed = await f.news.refresh({ automatic: true });
+  assert.equal(refreshed.updated, 1);
+  const restored = await readNews("instagram:201");
+  assert.equal(restored.title, headline);
+  assert.equal(restored.text, text);
+  assert.equal(await f.news.refresh({ automatic: true }), null);
+});
+
 test("Instagram import reports missing setup instead of fake success", async t => {
   const f = await fixture(t);
   await initialize(f);

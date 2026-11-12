@@ -21,6 +21,8 @@ const directory = await mkdtemp(path.join(os.tmpdir(), "antipov-ui-"));
 const screenshots = path.join(ROOT, "screenshots");
 await mkdir(screenshots, { recursive: true });
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lLkAAAAASUVORK5CYII=";
+const fullHeadline = "В г. Казани прошли соревнования, на которых участники клуба выступили в нескольких возрастных категориях и завоевали медали в командном зачёте.";
+const newsBody = "Подготовка к сезону продолжается.\n\nПоздравляем команду!";
 const videoSample = await readFile(path.join(ROOT, "test/fixtures/video-sample.mp4"));
 const application = createApplication({ ...loadConfig({}), dataDir: directory, dbPath: path.join(directory, "test.sqlite"), newsFeedUrl: "https://loader.example/news", newsFeedToken: "test-only-source-token", newsAsyncImport: true }, {
   fetchImpl: async url => {
@@ -31,7 +33,7 @@ const application = createApplication({ ...loadConfig({}), dataDir: directory, d
     if (url !== "https://loader.example/news") throw new Error("External services are disabled in browser tests");
     return new Response(JSON.stringify({ schemaVersion: 1, hashtag: "новости", items: [
       { id: "9001", caption: "Тестовый турнир\nПобеда команды. #новости", timestamp: "2026-10-31T12:00:00Z", link: "https://www.instagram.com/p/test9001/", image: { type: "image/png", data: png }, video: { id: "9001", contentType: "video/mp4" } },
-      { id: "9002", caption: "Тестовый сбор\nПодготовка к сезону. #новости", timestamp: "2026-10-30T12:00:00Z", link: "https://www.instagram.com/p/test9002/", image: null }
+      { id: "9002", caption: `${fullHeadline} ${newsBody} #новости`, timestamp: "2026-10-30T12:00:00Z", link: "https://www.instagram.com/p/test9002/", image: { type: "image/png", data: png } }
     ] }), { headers: { "Content-Type": "application/json" } });
   }
 });
@@ -281,6 +283,20 @@ try {
   await publicPage.goto(origin + "/#news");
   await publicPage.getByRole("heading", { name: "Тестовая новость клуба", exact: true }).waitFor();
   await publicPage.getByRole("heading", { name: "Тестовый турнир", exact: true }).waitFor();
+  const photoCard = publicPage.locator("#news .news-card").filter({ has: publicPage.getByRole("heading", { name: fullHeadline, exact: true }) });
+  await photoCard.locator(".news-headline[data-preview]").waitFor();
+  const cover = photoCard.locator("img");
+  await cover.scrollIntoViewIfNeeded();
+  const box = await cover.boundingBox();
+  await publicPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const newsDialog = publicPage.getByRole("dialog", { name: fullHeadline, exact: true });
+  await newsDialog.waitFor();
+  assert.equal(await newsDialog.locator(".coach-dialog-bio").textContent(), newsBody);
+  await publicPage.keyboard.press("Escape");
+  await photoCard.locator(".news-open").press("Enter");
+  await newsDialog.waitFor();
+  await publicPage.keyboard.press("Escape");
+  console.log('PASS: news cover and keyboard open the full sentence and remaining caption');
   const newsVideo = publicPage.locator('#news video');
   await newsVideo.waitFor({ state: 'visible' });
   assert.equal(await newsVideo.count(), 1);

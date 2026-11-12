@@ -12,7 +12,41 @@ import { createNewsVideos, VIDEO_PREFIX, VIDEO_FILE, PUBLIC_NEWS_LIMIT } from ".
 
 const MEDIA_PREFIX = "/media/news/";
 const FILE = /^[a-f0-9]{64}\.(?:jpg|png|webp)$/;
+const CAPTION_MIGRATION = "instagram_sentence_titles";
+const sentences = new Intl.Segmenter("ru", { granularity: "sentence" });
+const abbreviation = /(?:^|[^\p{L}])(?:г|им|ул|пос|пгт|д|т|е|п|к|др)\.$/iu;
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+function splitCaption(caption) {
+  const clean = caption.trim();
+  const firstLine = clean.split(/\r\n?|\n/, 1)[0];
+  // Instagram introductions often end at a line break instead of a period.
+  let end = firstLine.length;
+  for (const { index, segment } of sentences.segment(firstLine)) {
+    const sentence = segment.trimEnd();
+    if (abbreviation.test(sentence)) continue;
+    end = index + sentence.length;
+    break;
+  }
+  return { title: clean.slice(0, end).trim() || "Новость клуба", text: clean.slice(end).trim() };
+}
+
+function migrateInstagramCaptions(db) {
+  const migrated = db.prepare("SELECT value FROM settings WHERE key=?");
+  if (migrated.get(CAPTION_MIGRATION)) return;
+  transaction(db, () => {
+    if (migrated.get(CAPTION_MIGRATION)) return;
+    const active = new Set(db.prepare(`SELECT id FROM news_items WHERE hidden=0 ORDER BY published_at DESC,created_at DESC,id DESC LIMIT ${PUBLIC_NEWS_LIMIT}`).all().map(row => row.id));
+    const update = db.prepare("UPDATE news_items SET title=?,text=? WHERE id=?");
+    let needsRefresh = false;
+    for (const row of db.prepare("SELECT id,title,text FROM news_items WHERE source='instagram'").all()) {
+      if (active.has(row.id) && (row.title.length === 120 || row.text.length === 2000)) needsRefresh = true;
+      const { title, text } = splitCaption(`${row.title}\n${row.text}`);
+      update.run(title, text, row.id);
+    }
+    db.prepare("INSERT INTO settings VALUES (?,?)").run(CAPTION_MIGRATION, needsRefresh ? "pending" : "ready");
+  });
+}
 
 function migrateLegacy(db, dataDir) {
   if (db.prepare("SELECT value FROM settings WHERE key='legacy_news_migrated'").get()) return;
@@ -36,6 +70,7 @@ function migrateLegacy(db, dataDir) {
 
 export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limit }) {
   migrateLegacy(db, config.dataDir);
+  migrateInstagramCaptions(db);
   const videos = createNewsVideos(db, config, fetchImpl);
   const directory = path.join(config.dataDir, "news-images");
   let inFlight;
@@ -47,7 +82,11 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
   const state = key => db.prepare("SELECT value FROM settings WHERE key=?").get(key)?.value || "";
   const setState = (key, value) => db.prepare("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(key, String(value));
   const autoUpdate = importMode !== "none" && config.newsAutoUpdate !== false;
-  const nextImport = () => autoUpdate ? Math.max(Number(state("news_last_import")) + 86400000, Number(state("news_last_attempt")) + 3600000) : 0;
+  const nextImport = () => {
+    if (!autoUpdate) return 0;
+    const nextDailyImport = state(CAPTION_MIGRATION) === "pending" ? 0 : Number(state("news_last_import")) + 86400000;
+    return Math.max(nextDailyImport, Number(state("news_last_attempt")) + 3600000);
+  };
 
   async function cleanupUploads() {
     const rows = db.prepare(`SELECT filename FROM news_uploads WHERE created_at<? AND NOT EXISTS
@@ -134,11 +173,9 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
         if (url.protocol !== "https:" || !["www.instagram.com", "instagram.com"].includes(url.hostname) || url.username || url.password || url.port) throw new Error("instagram_response");
         link = url.href;
       }
-      const clean = item.caption.normalize("NFKC").replace(hashtagPattern(config.instagramHashtag), "").trim();
-      const lines = clean.split("\n");
-      const title = (lines.shift()?.trim() || "Новость клуба").slice(0, 120);
+      const { title, text } = splitCaption(item.caption.normalize("NFKC").replace(hashtagPattern(config.instagramHashtag), ""));
       const publishedAt = Date.parse(item.timestamp);
-      prepared.push({ sourceId: item.id, id: previous?.id || `instagram:${item.id}`, title, text: lines.join("\n").trim().slice(0, 2000),
+      prepared.push({ sourceId: item.id, id: previous?.id || `instagram:${item.id}`, title, text,
         publishedAt, date: new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(publishedAt)),
         image: item.image ? await storeImage(item.image) : "", link, hasVideo, existed: !!previous });
     }
@@ -156,6 +193,7 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
         if (item.existed) updated++; else added++;
       }
       db.prepare("INSERT INTO settings VALUES('news_last_import',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(Date.now()));
+      setState(CAPTION_MIGRATION, "ready");
       if (Number.isFinite(Date.parse(payload.generatedAt))) setState("news_source_updated", Date.parse(payload.generatedAt));
       audit(db, "news_instagram_imported");
     });
