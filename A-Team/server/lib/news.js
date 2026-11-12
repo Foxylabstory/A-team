@@ -48,6 +48,14 @@ function migrateInstagramCaptions(db) {
   });
 }
 
+function restoreNovember8Caption(db) {
+  const truncated = "В этот раз мы выступали в дисциплине Армейский Рукопашный Бой в го\n";
+  const restored = "В этот раз мы выступали в дисциплине Армейский Рукопашный Бой в городе Елабуга на открытом межрегиональном турнире в честь праздника военный разведки 💪🏻\n";
+  db.prepare(`UPDATE news_items SET text=? || substr(text,length(?) + 1)
+    WHERE source='instagram' AND source_id=? AND instr(text,?)=1`)
+    .run(restored, truncated, "4025922453682793872", truncated);
+}
+
 function migrateLegacy(db, dataDir) {
   if (db.prepare("SELECT value FROM settings WHERE key='legacy_news_migrated'").get()) return;
   let old = [];
@@ -71,6 +79,7 @@ function migrateLegacy(db, dataDir) {
 export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limit }) {
   migrateLegacy(db, config.dataDir);
   migrateInstagramCaptions(db);
+  restoreNovember8Caption(db);
   const videos = createNewsVideos(db, config, fetchImpl);
   const directory = path.join(config.dataDir, "news-images");
   let inFlight;
