@@ -21,9 +21,7 @@ try {
   const config=loadConfig();
   writeReviewSnapshot(path.join(config.dataDir,'reviews-cache.json'),snapshot);
   if (seedIndex>=0 || process.argv.includes('--export-static')) {
-    for (const directory of [path.join(ROOT,'public/assets'),path.resolve(ROOT,'../../docs/assets'),path.resolve(ROOT,'../../assets')]) {
-      writeReviewSnapshot(path.join(directory,'club-reviews.json'),snapshot);
-    }
+    writeReviewSnapshot(path.join(config.publicDir, 'assets/club-reviews.json'), snapshot);
   }
   console.log(`Отзывы обновлены: рейтинг ${snapshot.rating}, отзывов ${snapshot.reviewCount}, опубликовано ${snapshot.reviews.length}.`);
 } catch (error) {

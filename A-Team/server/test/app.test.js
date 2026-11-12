@@ -264,19 +264,17 @@ test("news mutations require cookie authentication and CSRF after token migratio
   assert.equal((await f.request("/api/news")).data.items[0].title, "Тестовая новость");
 });
 
-test("all landing versions have real submission and matching consent; embedded scripts compile", async () => {
-  for (const filename of [path.resolve(ROOT, "../../index.html"), path.resolve(ROOT, "../../docs/index.html"), path.join(ROOT, "public/index.html")]) {
-    const html = await readFile(filename, "utf8");
-    const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);
-    const source = template.match(/<script type="text\/x-dc"[^>]*>([\s\S]*?)<\/script>/)[1];
-    assert.doesNotThrow(() => new Function("DCLogic", source));
-    assert.ok(source.includes(`consentVersion: "${CONSENT_VERSION}"`));
-    assert.ok(source.includes('fetch("/api/lead"'));
-    assert.ok(!source.includes('Authorization: "Bearer "'));
-    assert.ok(template.includes('name="name"') && template.includes('name="phone"') && template.includes('href="/admin/"'));
-    const visibleConsent = template.match(/<span>(Я даю согласие[\s\S]*?)<\/span>/)[1].replace(/<[^>]*>/g, "");
-    assert.equal(visibleConsent, CONSENT_TEXT);
-  }
+test('the landing form submits to the server and displays the current consent text', async () => {
+  const html = await readFile(path.join(ROOT, 'public/index.html'), 'utf8');
+  const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);
+  const source = template.match(/<script type="text\/x-dc"[^>]*>([\s\S]*?)<\/script>/)[1];
+  assert.doesNotThrow(() => new Function('DCLogic', source));
+  assert.ok(source.includes(`consentVersion: "${CONSENT_VERSION}"`));
+  assert.ok(source.includes('fetch("/api/lead"'));
+  assert.ok(!source.includes('Authorization: "Bearer "'));
+  assert.ok(template.includes('name="name"') && template.includes('name="phone"') && template.includes('href="/admin/"'));
+  const visibleConsent = template.match(/<span>(Я даю согласие[\s\S]*?)<\/span>/)[1].replace(/<[^>]*>/g, '');
+  assert.equal(visibleConsent, CONSENT_TEXT);
 });
 
 test("developer contact replaces the prompt with a mail link", async () => {

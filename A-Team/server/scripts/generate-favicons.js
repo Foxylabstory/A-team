@@ -4,8 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const logo = await fs.readFile(path.join(root, 'assets/antipov-team-logo-v2.svg'), 'utf8');
+const publicDir = fileURLToPath(new URL('../public/', import.meta.url));
+const logo = await fs.readFile(path.join(publicDir, 'assets/antipov-team-logo-v2.svg'), 'utf8');
 const letter = logo.match(/<g\b[^>]*>[\s\S]*?<\/g>/)?.[0];
 if (!letter) throw new Error('The first vector group must contain the original A emblem.');
 const executablePath = process.env.BROWSER_EXECUTABLE || [
@@ -52,11 +52,9 @@ try {
     offset += images[index].length;
   }
   const ico = Buffer.concat([header,...images]);
-  for (const base of [root,path.join(root,'docs'),path.join(root,'A-Team/server/public')]) {
-    await fs.writeFile(path.join(base,'assets/favicon.svg'),svg);
-    await fs.writeFile(path.join(base,'assets/favicon-32.png'),png32);
-    await fs.writeFile(path.join(base,'assets/apple-touch-icon.png'),touch);
-    await fs.writeFile(path.join(base,'favicon.ico'),ico);
-  }
+  await fs.writeFile(path.join(publicDir, 'assets/favicon.svg'), svg);
+  await fs.writeFile(path.join(publicDir, 'assets/favicon-32.png'), png32);
+  await fs.writeFile(path.join(publicDir, 'assets/apple-touch-icon.png'), touch);
+  await fs.writeFile(path.join(publicDir, 'favicon.ico'), ico);
   console.log(`Exported original A emblem: SVG, PNG 32, touch 180, ICO 16/32/48 (${svg.length} SVG characters).`);
 } finally { await browser.close(); }
