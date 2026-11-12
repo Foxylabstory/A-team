@@ -13,6 +13,7 @@ import unicodedata
 from urllib.parse import urlparse
 
 IMAGE_LIMIT = 2 * 1024 * 1024
+NEWS_LIMIT = 3
 STAGE = "setup"
 
 
@@ -116,7 +117,7 @@ def collect(account, hashtag, max_posts, session_file=""):
                     "link": "https://www.instagram.com/p/" + post.shortcode + "/", "imageUrl": post.url, "videoUrl": video_address, "videoUnavailable": unavailable}
             if scanned >= max_posts:
                 break
-        selected = sorted(records.values(), key=lambda item: item["timestamp"], reverse=True)[:6]
+        selected = sorted(records.values(), key=lambda item: item["timestamp"], reverse=True)[:NEWS_LIMIT]
         STAGE = "images"
         with requests.Session() as images:
             for item in selected:

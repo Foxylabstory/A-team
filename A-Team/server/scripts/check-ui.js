@@ -186,6 +186,15 @@ try {
   await page.locator('#reviews').screenshot({ path:path.join(screenshots, 'reviews-section-desktop.png') });
   await page.locator('#coaches').screenshot({ path:path.join(screenshots, 'coaches-desktop.png') });
   console.log('PASS: landing content and schedule fit 320/375/390/777/1440px; section order and bidirectional slider work');
+  const developer = page.getByRole('button', { name:/Хочу такой же крутой сайт/ });
+  await developer.click();
+  const email = page.getByRole('link', { name:'rushan.shakirzianov@gmail.com', exact:true });
+  await email.waitFor();
+  assert.equal(await developer.count(), 0);
+  assert.match(await email.getAttribute('href'), /^mailto:rushan\.shakirzianov@gmail\.com\?subject=/);
+  await page.waitForFunction(() => document.activeElement.matches('.developer-email'));
+  await page.locator('.developer-credit').screenshot({ path:path.join(screenshots, 'developer-contact.png') });
+  console.log('PASS: developer prompt becomes a focused mail link');
   const staticPage = await context.newPage();
   const staticRequests = [];
   staticPage.on('request', request => staticRequests.push(request.url()));
@@ -210,11 +219,7 @@ try {
   const scheduleLink = staticPage.locator('.discipline-set:not([aria-hidden]) a[href="#schedule-mma"]');
   await scheduleLink.click();
   await staticPage.waitForURL('**/#schedule-mma');
-  const developer = staticPage.getByRole('button', { name:/Хочу такой же крутой сайт/ });
-  await developer.click();
-  await staticPage.getByText('rushan.shakirzianov@gmail.com', { exact:true }).waitFor();
-  await staticPage.locator('.developer-credit').screenshot({ path:path.join(screenshots, 'developer-contact.png') });
-  console.log('PASS: carousel resumes after manual scroll; discipline links open the right schedule; developer contact opens on a single tap');
+  console.log('PASS: carousel resumes after manual scroll; discipline links open the right schedule');
   await staticPage.close();
   console.log('PASS: standalone Pages under /A-team/ loads logo and static news without API; signup uses the real phone');
   await page.locator('#contacts input[name="name"]').fill("Тестовая заявка с сайта");

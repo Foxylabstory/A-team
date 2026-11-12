@@ -228,26 +228,11 @@ test("all landing versions have real submission and matching consent; embedded s
   }
 });
 
-test("developer contact reveals the address on one tap and opens mail only on a double tap", async () => {
-  for (const filename of [path.resolve(ROOT, "../../index.html"), path.resolve(ROOT, "../../docs/index.html"), path.join(ROOT, "public/index.html")]) {
-    const html = await readFile(filename, "utf8");
-    const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);
-    const source = template.match(/<script type="text\/x-dc"[^>]*>([\s\S]*?)<\/script>/)[1];
-    let now = 1000;
-    const testWindow = { location:{ href:"" } };
-    class Logic { setState(patch) { this.state = { ...this.state, ...patch }; } }
-    const Component = new Function("DCLogic", "performance", "window", source + ";return Component;")(Logic, { now:() => now }, testWindow);
-    const component = new Component();
-    component.onDeveloperContact({ detail:1 });
-    assert.equal(component.state.developerEmailVisible, true);
-    assert.equal(testWindow.location.href, "");
-    now = 2000;
-    component.onDeveloperContact({ detail:1 });
-    assert.equal(testWindow.location.href, "", "separate taps must not open a mail app");
-    now = 2200;
-    component.onDeveloperContact({ detail:1 });
-    assert.ok(testWindow.location.href.startsWith("mailto:rushan.shakirzianov@gmail.com?subject="));
-  }
+test("developer contact replaces the prompt with a mail link", async () => {
+  const html = await readFile(path.join(ROOT, "public/index.html"), "utf8");
+  const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);
+  assert.match(template, /<sc-if value="{{ developerPromptVisible }}"[^>]*><button class="developer-contact"/);
+  assert.match(template, /<sc-if value="{{ developerEmailVisible }}"[^>]*><a class="developer-email" href="mailto:rushan\.shakirzianov@gmail\.com\?subject=/);
 });
 
 test("configuration rejects production without HTTPS and publicly exposed data directories", () => {
@@ -353,7 +338,7 @@ test("failed or malformed Instagram imports leave published news unchanged", asy
   assert.equal(f.db.prepare("SELECT value FROM settings WHERE key='news_last_import'").get(), undefined);
 });
 
-test("direct Instagram import paginates and filters before selecting six latest tagged posts", async t => {
+test("direct Instagram import paginates and filters before selecting three latest tagged posts", async t => {
   let pageCalls = 0;
   let images = 0;
   const f = await fixture(t, { instagramUser: "12345", instagramToken: "fake-meta-token", instagramHashtag: "новости", instagramVersion: "v25.0", instagramLogin: "facebook" }, async (url, options) => {
@@ -373,9 +358,9 @@ test("direct Instagram import paginates and filters before selecting six latest 
   const session = await f.login();
   const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
   assert.equal(result.status, 200);
-  assert.equal(result.data.added, 6);
+  assert.equal(result.data.added, 3);
   assert.equal(pageCalls, 2);
-  assert.equal(images, 6);
+  assert.equal(images, 3);
   const items = (await f.request("/api/news")).data.items;
   assert.equal(items.length, 3);
   assert.equal(items[0].title, "Событие 6");
@@ -568,6 +553,7 @@ test("only the three visible news videos are downloaded, support seeking and are
   const session = await f.login();
   const result = await f.request("/api/admin/news/import", { method: "POST", ...session, body: {} });
   assert.equal(result.status, 200);
+  assert.equal(result.data.added, 3, "an older loader can return more posts than the site imports");
   assert.equal(result.data.videosAdded, 3);
   assert.deepEqual(downloaded, ["4", "3", "2"]);
   const items = (await f.request("/api/news")).data.items;

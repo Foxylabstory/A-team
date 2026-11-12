@@ -75,7 +75,7 @@ class NewsTests(unittest.TestCase):
             date_utc=datetime(2026, 10, i), url=f"https://scontent.cdninstagram.com/{i}.png", is_video=False, typename="GraphImage") for i in (1, 7, 2, 6, 3, 5, 4)]
         posts.insert(1, SimpleNamespace(caption="Без новости #новостиспорта"))
         result = self.collect(posts)
-        self.assertEqual([item["id"] for item in result["items"]], ["7", "6", "5", "4", "3", "2"])
+        self.assertEqual([item["id"] for item in result["items"]], ["7", "6", "5"])
         self.assertEqual(result["scanned"], 8)
         self.assertFalse(result["truncated"])
         self.assertTrue(all(item["image"]["type"] == "image/png" for item in result["items"]))

@@ -269,7 +269,7 @@ async function loadNews() {
     $("import-news").disabled = !newsConfigured || newsImporting || newsRunning;
     const notes = [];
     if (data.importConfigured) {
-      notes.push(`${data.account ? `@${data.account}: ` : ""}последние шесть публикаций с #${data.hashtag}.`);
+      notes.push(`${data.account ? `@${data.account}: ` : ""}до трёх самых свежих публикаций с #${data.hashtag}.`);
       notes.push(data.autoUpdate ? "Автоматическое обновление — раз в сутки." : "Загрузка по кнопке.");
       notes.push("Удалённые с сайта записи остаются скрытыми.");
       if (data.lastImport) notes.push(`Последняя успешная загрузка: ${date(data.lastImport)} МСК.`);

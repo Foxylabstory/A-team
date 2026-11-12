@@ -1,5 +1,7 @@
 import { IMAGE_LIMIT, imageType, readLimited } from "./images.js";
 
+export const INSTAGRAM_NEWS_LIMIT = 3;
+
 export function hashtagPattern(tag) {
   return new RegExp(`(?<![\\p{L}\\p{N}_])#${tag}(?![\\p{L}\\p{N}_])`, "giu");
 }
@@ -49,7 +51,7 @@ export async function collectInstagram(config, fetchImpl = fetch) {
     if (page === 9) truncated = true;
   }
   const selected = [...collected.values()].filter(m => Number.isFinite(Date.parse(m.timestamp)))
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, 6);
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, INSTAGRAM_NEWS_LIMIT);
   const items = [];
   for (const media of selected) {
     let image = null;

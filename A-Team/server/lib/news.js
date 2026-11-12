@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { audit, transaction } from "./database.js";
 import { findSession } from "./auth.js";
-import { collectInstagram, hashtagPattern } from "../instagram-loader/instagram.js";
+import { collectInstagram, hashtagPattern, INSTAGRAM_NEWS_LIMIT } from "../instagram-loader/instagram.js";
 import { IMAGE_LIMIT, imageType, readLimited } from "../instagram-loader/images.js";
 import { INSTALOADER_ERRORS } from "../instagram-loader/instaloader.js";
 import { setTimeout as pause } from "node:timers/promises";
@@ -112,12 +112,14 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
     throw new Error("instagram_timeout");
   }
   async function importItems(payload) {
+    // Accept older loader responses during rollout and import only the newest posts.
     if (payload.schemaVersion !== 1 || payload.hashtag !== config.instagramHashtag || !Array.isArray(payload.items) || payload.items.length > 6) throw new Error("instagram_response");
     if (config.instagramUsername && payload.accountUsername?.toLowerCase() !== config.instagramUsername) throw new Error("instagram_account_mismatch");
     const prepared = [];
     const seen = new Set();
     let skipped = 0;
-    for (const item of payload.items) {
+    const recent = payload.items.toSorted((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, INSTAGRAM_NEWS_LIMIT);
+    for (const item of recent) {
       if (!/^\d{1,40}$/.test(item.id || "") || typeof item.caption !== "string" || item.caption.length > 10000 ||
           !Number.isFinite(Date.parse(item.timestamp)) || !hashtagPattern(config.instagramHashtag).test(item.caption.normalize("NFKC"))) throw new Error("instagram_response");
       if (seen.has(item.id)) continue;
