@@ -1,0 +1,50 @@
+.club-page {
+  margin: 0;
+  color: #f3f3f4;
+  background: #0a0a0b;
+  font: 16px/1.65 system-ui, sans-serif;
+}
+
+.club-page * { box-sizing: border-box; }
+.club-page a { color: #e1e4e8; text-underline-offset: .2em; }
+.club-page a:focus-visible { outline: 2px solid #d7d9dd; outline-offset: 4px; }
+.club-page-header, .club-page-main { width: min(1120px, calc(100% - 36px)); margin-inline: auto; }
+.club-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px 24px;
+  padding: 20px 0;
+  border-bottom: 1px solid #292b30;
+}
+
+.club-page-header img { display: block; max-width: 100%; height: auto; }
+.club-page-main { padding-block: clamp(24px, 6vw, 72px); }
+.club-page-main h1 { margin: 0 0 18px; font-size: clamp(33px, 5vw, 60px); line-height: 1.08; letter-spacing: -.04em; }
+.club-page-main h2 { margin: 0 0 16px; font-size: clamp(22px, 3vw, 30px); line-height: 1.2; }
+.club-page-main p { margin: 0 0 16px; }
+.club-page-intro { max-width: 67ch; color: #b9bdc4; font-size: 18px; }
+.club-page-hero { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: clamp(24px, 5vw, 56px); margin-top: 28px; }
+.club-page-hero img { width: 100%; height: auto; aspect-ratio: 4/3; object-fit: cover; }
+.club-page-panel { margin-top: 32px; padding: clamp(16px, 4vw, 32px); border: 1px solid #34373e; background: #101115; }
+.club-page-panel address { margin-bottom: 16px; font-style: normal; }
+.club-page-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 10px 20px; margin: 0; padding: 0; list-style: none; }
+.club-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
+.club-page-actions .club-page-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 16px;
+  color: #0a0a0b;
+  background: #e1e4e8;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.club-page-schedule { width: 100%; border-collapse: collapse; text-align: left; }
+.club-page-schedule caption { padding-bottom: 10px; color: #b9bdc4; text-align: left; }
+.club-page-schedule th, .club-page-schedule td { padding: 9px 6px; border-bottom: 1px solid #34373e; overflow-wrap: anywhere; }
+.club-page-schedule td:nth-child(2) { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 700px) { .club-page-hero { grid-template-columns: 1fr; } }

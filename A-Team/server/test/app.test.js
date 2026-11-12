@@ -277,6 +277,37 @@ test('the landing form submits to the server and displays the current consent te
   assert.equal(visibleConsent, CONSENT_TEXT);
 });
 
+test('search engines receive club information and the seven canonical section pages in plain HTML', async (t) => {
+  const siteUrl = 'https://antipov.team';
+  const f = await fixture(t, { siteUrl });
+  const landing = await f.request('/');
+  assert.equal(landing.status, 200);
+  const initialHtml = landing.text.split('<script>')[0];
+  assert.match(initialHtml, /<title>Клуб единоборств Antipov Team — Набережные Челны<\/title>/);
+  assert.match(initialHtml, /<h1>Клуб единоборств Antipov Team — Набережные Челны<\/h1>/);
+  assert.match(initialHtml, /<address>Набережные Челны, проспект Сююмбике, 2\/19/);
+  const robots = await f.request('/robots.txt');
+  assert.equal(robots.status, 200);
+  assert.ok(robots.text.includes(`Sitemap: ${siteUrl}/sitemap.xml`));
+  const sitemap = await f.request('/sitemap.xml');
+  assert.match(sitemap.headers.get('content-type'), /xml/);
+  const urls = [...sitemap.text.matchAll(/<loc>([^<]+)<\/loc>/g)].map((entry) => entry[1]);
+  assert.equal(urls.length, 8);
+  assert.equal(urls[0], `${siteUrl}/`);
+  for (const canonical of urls.slice(1)) {
+    const { pathname } = new URL(canonical);
+    assert.ok(initialHtml.includes(`href="${pathname}"`));
+    const page = await f.request(pathname);
+    assert.equal(page.status, 200);
+    assert.ok(page.text.includes(`<link rel="canonical" href="${canonical}">`));
+    assert.match(page.text, /<h1>[^<]+в Набережных Челнах<\/h1>/);
+    assert.match(page.text, /<tbody><tr><td>/);
+    assert.match(page.text, /href="\/#contacts">Записаться на тренировку/);
+  }
+  assert.equal((await f.request('/sekcii/mma')).headers.get('location'), '/sekcii/mma/');
+  assert.equal((await f.request('/sekcii/unknown/')).status, 404);
+});
+
 test("developer contact replaces the prompt with a mail link", async () => {
   const html = await readFile(path.join(ROOT, "public/index.html"), "utf8");
   const template = JSON.parse(html.match(/<script type="__bundler\/template">\s*([\s\S]*?)\s*<\/script>/)[1]);

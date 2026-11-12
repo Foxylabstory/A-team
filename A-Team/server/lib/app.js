@@ -7,6 +7,7 @@ import {
 import { createNotifier } from "./notifications.js";
 import { installNews } from "./news.js";
 import { createReviewsUpdater } from './reviews.js';
+import { installSitePages } from './site-pages.js';
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -205,6 +206,7 @@ export function createApplication(config, { fetchImpl = fetch } = {}) {
     res.json({ok:true,...(snapshot || {reviews:[]})});
   });
   app.use("/api", (_req, res) => res.status(404).json({ ok: false, error: "not_found" }));
+  installSitePages(app, config);
   app.use(express.static(config.publicDir, { dotfiles: "deny" }));
   app.use((error, _req, res, _next) => {
     const status = error.type === "entity.too.large" ? 413 : error.type === "entity.parse.failed" ? 400 : 500;
