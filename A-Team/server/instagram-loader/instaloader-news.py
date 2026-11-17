@@ -138,7 +138,7 @@ def login(filename):
     if not re.fullmatch(r"[a-zA-Z0-9._]{1,30}", username):
         raise NewsError("invalid_username")
     print("Сессия даёт доступ к аккаунту Instagram. Она будет сохранена только в закрытом файле загрузчика.")
-    loader = instaloader.Instaloader(quiet=True, max_connection_attempts=1, request_timeout=20)
+    loader = instaloader.Instaloader(quiet=False, max_connection_attempts=1, request_timeout=20)
     try:
         loader.interactive_login(username)
         value = {"schemaVersion": 1, "username": username, "cookies": loader.context.save_session()}

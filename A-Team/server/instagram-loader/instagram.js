@@ -6,6 +6,17 @@ export function hashtagPattern(tag) {
   return new RegExp(`(?<![\\p{L}\\p{N}_])#${tag}(?![\\p{L}\\p{N}_])`, "giu");
 }
 
+export async function readInstagramImage(address, { fetchImpl = fetch, signal } = {}) {
+  if (!address) return null;
+  const url = new URL(address);
+  const allowed = ["cdninstagram.com", "fbcdn.net"].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`));
+  if (!allowed || url.protocol !== "https:" || (url.port && url.port !== "443") || url.username || url.password) throw new Error("instagram_image_host");
+  const response = await fetchImpl(url, { signal, redirect: "error" });
+  const bytes = await readLimited(response, IMAGE_LIMIT);
+  const { type } = imageType(bytes);
+  return { type, data: bytes.toString("base64") };
+}
+
 export async function collectInstagram(config, fetchImpl = fetch) {
   if (!/^\d+$/.test(config.instagramUser || "") || !config.instagramToken) throw new Error("instagram_not_configured");
   const signal = AbortSignal.timeout(45000);
@@ -54,17 +65,8 @@ export async function collectInstagram(config, fetchImpl = fetch) {
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, INSTAGRAM_NEWS_LIMIT);
   const items = [];
   for (const media of selected) {
-    let image = null;
     const address = media.media_type === "VIDEO" ? media.thumbnail_url : media.media_url;
-    if (address) {
-      const url = new URL(address);
-      const allowed = ["cdninstagram.com", "fbcdn.net"].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`));
-      if (!allowed || url.protocol !== "https:" || (url.port && url.port !== "443") || url.username || url.password) throw new Error("instagram_image_host");
-      const response = await fetchImpl(url, { signal, redirect: "error" });
-      const bytes = await readLimited(response, IMAGE_LIMIT);
-      const { type } = imageType(bytes);
-      image = { type, data: bytes.toString("base64") };
-    }
+    const image = await readInstagramImage(address, { fetchImpl, signal });
     items.push({ id: media.id, caption: String(media.caption || ""), timestamp: media.timestamp, link: media.permalink || "", image });
   }
   return { schemaVersion: 1, hashtag: config.instagramHashtag, accountUsername, items, truncated, scanned };

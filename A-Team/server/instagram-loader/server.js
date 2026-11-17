@@ -4,6 +4,7 @@ import { collectInstagram } from "./instagram.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicNewsService } from "./public-service.js";
+import { collectWithApify } from "./apify.js";
 import { relayInstagramVideo } from "./video.js";
 
 const secret = process.env.NEWS_LOADER_TOKEN || "";
@@ -16,15 +17,20 @@ const config = {
   instagramPython: process.env.IG_PYTHON || "python3",
   instagramScanLimit: Number(process.env.IG_SCAN_LIMIT || 100),
   instagramSessionFile: process.env.IG_SESSION_FILE || "",
+  apifyToken: process.env.IG_APIFY_TOKEN?.trim(),
   loaderDataDir: path.resolve(fileURLToPath(new URL("./", import.meta.url)), process.env.NEWS_LOADER_DATA_DIR || "private")
 };
 const source = process.env.IG_SOURCE || "official";
-if (!["official", "instaloader"].includes(source)) throw new Error("IG_SOURCE must be official or instaloader.");
+const apifyInitialSince = process.env.IG_APIFY_INITIAL_SINCE?.trim() || "";
+const isCursor = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value));
+if (!["official", "instaloader", "apify"].includes(source)) throw new Error("IG_SOURCE must be official, instaloader, or apify.");
 if (!/^[\p{L}\p{N}_]{1,80}$/u.test(config.instagramHashtag) || !/^v\d+\.0$/.test(config.instagramVersion)) throw new Error("Invalid Instagram settings.");
 if (source === "official" && (!["facebook", "instagram"].includes(config.instagramLogin) || !/^\d+$/.test(config.instagramUser || "") || !config.instagramToken)) throw new Error("Configure a professional Instagram account and matching login type.");
 if (config.instagramUsername && !/^[a-z0-9._]{1,30}$/.test(config.instagramUsername)) throw new Error("Invalid IG_NEWS_ACCOUNT.");
 if (source === "instaloader" && (!config.instagramUsername || !Number.isInteger(config.instagramScanLimit) || config.instagramScanLimit < 1 || config.instagramScanLimit > 500)) throw new Error("Configure IG_NEWS_ACCOUNT and IG_SCAN_LIMIT (1..500).");
-const publicNews = source === "instaloader" ? createPublicNewsService(config) : null;
+if (source === "apify" && (!config.instagramUsername || !config.apifyToken || /\s/.test(config.apifyToken))) throw new Error("Configure IG_NEWS_ACCOUNT and IG_APIFY_TOKEN.");
+if (source === "apify" && apifyInitialSince && !isCursor(apifyInitialSince)) throw new Error("IG_APIFY_INITIAL_SINCE must be a UTC timestamp.");
+const publicNews = source === "official" ? null : createPublicNewsService(config, { source, collect: source === "apify" ? collectWithApify : undefined });
 let running = false;
 let lastAttempt = 0;
 const server = http.createServer(async (req, res) => {
@@ -51,7 +57,9 @@ const server = http.createServer(async (req, res) => {
   if (req.url !== "/news" || req.method !== "GET") { res.writeHead(404); res.end('{"ok":false}'); return; }
   if (publicNews) {
     try {
-      const result = publicNews.read({ force: req.headers["x-news-refresh"] === "1" });
+      const since = source === "apify" ? (req.headers["x-news-since"] || apifyInitialSince) : "";
+      if (since && !isCursor(since)) { res.writeHead(400); res.end('{"ok":false}'); return; }
+      const result = publicNews.read({ force: req.headers["x-news-refresh"] === "1", since });
       if (result.status === 202) res.setHeader("Retry-After", "10");
       res.writeHead(result.status); res.end(JSON.stringify(result.body));
     } catch { res.writeHead(502); res.end('{"ok":false,"error":"instagram_unavailable"}'); }

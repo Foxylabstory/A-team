@@ -405,6 +405,28 @@ test("Instagram import is explicit, persistent, deduplicated and keeps removed p
   assert.equal(items.length, 1);
 });
 
+test("incremental Instagram imports advance the database cursor only on success", async t => {
+  const firstCursor = "2026-11-08T14:16:17.000Z";
+  const nextCursor = "2026-11-09T14:16:17.000Z";
+  const requests = [];
+  const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", instagramHashtag: "новости" }, async (_url, options) => {
+    requests.push(options.headers["X-News-Since"]);
+    const payload = { schemaVersion: 1, hashtag: "новости" };
+    if (requests.length === 1) return jsonResponse({ ...payload, latestPostAt: firstCursor, items: [imported()] });
+    if (requests.length === 2) return jsonResponse({ ...payload, latestPostAt: nextCursor, items: [] });
+    return jsonResponse({ ...payload, latestPostAt: "2026-11-10T14:16:17.000Z", items: [{ ...imported(), caption: "#другое" }] });
+  });
+  const cursor = () => f.db.prepare("SELECT value FROM settings WHERE key='news_source_cursor'").get()?.value;
+  assert.equal((await f.news.refresh()).added, 1);
+  assert.equal(cursor(), firstCursor);
+  assert.equal((await f.news.refresh()).found, 0);
+  assert.equal(cursor(), nextCursor);
+  await assert.rejects(f.news.refresh(), /instagram_unavailable/);
+  assert.equal(cursor(), nextCursor);
+  assert.deepEqual(requests, [undefined, firstCursor, nextCursor]);
+  assert.equal((await f.request("/api/news")).data.items.length, 1);
+});
+
 test("failed or malformed Instagram imports leave published news unchanged", async t => {
   const f = await fixture(t, { newsFeedUrl: "https://loader.example/news", instagramHashtag: "новости" }, async () =>
     jsonResponse({ schemaVersion: 1, hashtag: "новости", items: [imported("201"), { ...imported("202"), caption: "#новостиспорта" }] }));

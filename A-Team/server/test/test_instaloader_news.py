@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("club_news", Path(__file__).parents[1] / "instagram-loader" / "instaloader-news.py")
 news = importlib.util.module_from_spec(spec)
@@ -117,6 +117,22 @@ class NewsTests(unittest.TestCase):
             filename.write_text(json.dumps({"schemaVersion": 1, "username": "my_account", "cookies": {"sessionid": 123}}))
             with self.assertRaises(news.NewsError):
                 news.load_session(loader, str(filename))
+
+    def test_session_login_allows_interactive_password_prompt(self):
+        loader = Mock()
+        loader.context.save_session.return_value = {"sessionid": "test-only"}
+        create_loader = Mock(return_value=loader)
+        with tempfile.TemporaryDirectory(prefix="antipov-session-test-") as directory:
+            filename = Path(directory) / "session.json"
+            with (
+                patch.dict("sys.modules", {"instaloader": SimpleNamespace(Instaloader=create_loader)}),
+                patch("builtins.input", return_value="my_account"),
+                patch("builtins.print"),
+            ):
+                news.login(str(filename))
+            self.assertEqual(json.loads(filename.read_text(encoding="utf-8"))["username"], "my_account")
+        self.assertFalse(create_loader.call_args.kwargs["quiet"])
+        loader.interactive_login.assert_called_once_with("my_account")
 
 
 if __name__ == "__main__":

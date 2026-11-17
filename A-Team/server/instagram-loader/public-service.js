@@ -3,9 +3,9 @@ import path from "node:path";
 import { collectWithInstaloader, INSTALOADER_ERRORS } from "./instaloader.js";
 import { INSTAGRAM_NEWS_LIMIT } from "./instagram.js";
 
-export function createPublicNewsService(config, { collect = collectWithInstaloader, now = Date.now } = {}) {
-  const filename = path.join(config.loaderDataDir, "instaloader-feed.json");
-  const stateFile = path.join(config.loaderDataDir, "instaloader-state.json");
+export function createPublicNewsService(config, { collect = collectWithInstaloader, now = Date.now, source = "instaloader" } = {}) {
+  const filename = path.join(config.loaderDataDir, `${source}-feed.json`);
+  const stateFile = path.join(config.loaderDataDir, `${source}-state.json`);
   let cache, lastAttempt = 0, lastError = "", inFlight, controller;
   const valid = (value, limit = INSTAGRAM_NEWS_LIMIT) => value?.schemaVersion === 1 && value.accountUsername === config.instagramUsername && value.hashtag === config.instagramHashtag &&
     Array.isArray(value.items) && value.items.length <= limit && Number.isFinite(Date.parse(value.generatedAt));
@@ -17,13 +17,13 @@ export function createPublicNewsService(config, { collect = collectWithInstaload
     writeFileSync(target + ".tmp", JSON.stringify(value), { mode: 0o600 });
     renameSync(target + ".tmp", target);
   }
-  function refresh() {
+  function refresh(since) {
     lastAttempt = now();
     save(stateFile, { lastAttempt, lastError });
     controller = new AbortController();
     inFlight = (async () => {
       try {
-        const value = { ...await collect(config, { signal: controller.signal }), generatedAt: new Date(now()).toISOString() };
+        const value = { ...await collect(config, { signal: controller.signal, since }), since, generatedAt: new Date(now()).toISOString() };
         if (!valid(value)) throw new Error("instagram_unavailable");
         save(filename, value);
         cache = value;
@@ -38,20 +38,21 @@ export function createPublicNewsService(config, { collect = collectWithInstaload
     void inFlight.catch(() => {});
   }
   const publicFeed = value => ({ schemaVersion: 1, hashtag: value.hashtag, accountUsername: value.accountUsername,
-    generatedAt: value.generatedAt, scanned: value.scanned, scanLimit: value.scanLimit, truncated: value.truncated,
+    generatedAt: value.generatedAt, latestPostAt: value.latestPostAt, scanned: value.scanned, scanLimit: value.scanLimit, truncated: value.truncated,
     items: value.items.slice(0, INSTAGRAM_NEWS_LIMIT).map(item => ({ id: item.id, caption: item.caption, timestamp: item.timestamp, link: item.link, image: item.image,
       video: item.videoUrl || item.videoUnavailable ? { id: item.id, contentType: "video/mp4" } : null })) });
   return {
     videoUrl(id) { return cache?.items.find(item => item.id === id)?.videoUrl || ""; },
-    read({ force = false } = {}) {
+    read({ force = false, since = "" } = {}) {
       if (inFlight) return { status: 202, body: { ok: true, pending: true } };
       if (lastError && now() - lastAttempt < 3600000) return { status: 502, body: { ok: false, error: lastError } };
-      if (cache && !force && !lastError && now() - Date.parse(cache.generatedAt) < 86400000) return { status: 200, body: { ok: true, ...publicFeed(cache) } };
+      const matchingCache = cache && (cache.since || "") === since;
+      if (matchingCache && !force && !lastError && now() - Date.parse(cache.generatedAt) < 86400000) return { status: 200, body: { ok: true, ...publicFeed(cache) } };
       if (now() - lastAttempt < (lastError ? 3600000 : 60000)) {
-        if (cache && !lastError) return { status: 200, body: { ok: true, ...publicFeed(cache) } };
+        if (matchingCache && !lastError) return { status: 200, body: { ok: true, ...publicFeed(cache) } };
         return { status: 502, body: { ok: false, error: lastError || "instagram_unavailable" } };
       }
-      refresh();
+      refresh(since);
       return { status: 202, body: { ok: true, pending: true } };
     },
     status: () => ({ running: !!inFlight, lastAttempt, lastError }),

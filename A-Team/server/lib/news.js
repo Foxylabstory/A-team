@@ -139,9 +139,11 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
     if (importMode === "none") throw new Error("instagram_not_configured");
     if (importMode === "direct") return collectInstagram(config, fetchImpl);
     const overall = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(1200000)]);
+    const since = state("news_source_cursor");
     let first = true;
     while (!overall.aborted) {
-      const response = await fetchImpl(config.newsFeedUrl, { headers: { Authorization: `Bearer ${config.newsFeedToken}`, ...(force && first ? { "X-News-Refresh": "1" } : {}) },
+      const response = await fetchImpl(config.newsFeedUrl, { headers: { Authorization: `Bearer ${config.newsFeedToken}`,
+        ...(since ? { "X-News-Since": since } : {}), ...(force && first ? { "X-News-Refresh": "1" } : {}) },
         signal: AbortSignal.any([overall, AbortSignal.timeout(90000)]), redirect: "error" });
       first = false;
       if (response.status === 202) {
@@ -204,6 +206,9 @@ export function installNews(app, { db, config, auth, asyncRoute, fetchImpl, limi
       db.prepare("INSERT INTO settings VALUES('news_last_import',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(Date.now()));
       setState(CAPTION_MIGRATION, "ready");
       if (Number.isFinite(Date.parse(payload.generatedAt))) setState("news_source_updated", Date.parse(payload.generatedAt));
+      const latestPost = Date.parse(payload.latestPostAt);
+      const cursor = Date.parse(state("news_source_cursor")) || 0;
+      if (latestPost > cursor && latestPost <= Date.now()) setState("news_source_cursor", new Date(latestPost).toISOString());
       audit(db, "news_instagram_imported");
     });
     const videoResult = await videos.sync();
